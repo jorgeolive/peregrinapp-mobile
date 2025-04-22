@@ -19,12 +19,16 @@ export default function TabTwoScreen() {
   const mapRef = useRef<MapViewRef>(null);
 
   const handleAlberguePress = async (event: any) => {
+    console.log('Albergue press event:', event);
     const feature = event.features[0] as AlbergueFeature;
+    console.log('Selected feature:', feature);
     if (feature) {
       setSelectedAlbergue(feature);
       try {
         setIsLoading(true);
-        const details = await fetchAlbergueDetails(feature.properties.id);
+        console.log('Fetching details for albergue ID:', feature.id);
+        const details = await fetchAlbergueDetails(feature.id);
+        console.log('Fetched albergue details:', details);
         setAlbergueDetails(details);
       } catch (error) {
         console.error('Error handling albergue press:', error);
@@ -61,6 +65,16 @@ export default function TabTwoScreen() {
       'albergues': {
         type: 'vector',
         tiles: ['http://10.0.2.2:8080/geoserver/peregrinapp/gwc/service/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&LAYER=peregrinapp:camino_norte_albergues&STYLE=&TILEMATRIX=EPSG:900913:{z}&TILEMATRIXSET=EPSG:900913&FORMAT=application/vnd.mapbox-vector-tile&TILECOL={x}&TILEROW={y}'],
+        tms: true
+      },
+      'carretera-sec': {
+        type: 'vector',
+        tiles: ['http://10.0.2.2:8080/geoserver/peregrinapp/gwc/service/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&LAYER=peregrinapp:carretera_sec&STYLE=&TILEMATRIX=EPSG:900913:{z}&TILEMATRIXSET=EPSG:900913&FORMAT=application/vnd.mapbox-vector-tile&TILECOL={x}&TILEROW={y}'],
+        tms: true
+      },
+      'carretera-ppal': {
+        type: 'vector',
+        tiles: ['http://10.0.2.2:8080/geoserver/peregrinapp/gwc/service/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&LAYER=peregrinapp:carretera_ppal&STYLE=&TILEMATRIX=EPSG:900913:{z}&TILEMATRIXSET=EPSG:900913&FORMAT=application/vnd.mapbox-vector-tile&TILECOL={x}&TILEROW={y}'],
         tms: true
       }
     },
@@ -217,6 +231,31 @@ export default function TabTwoScreen() {
             6, 1
           ]
         }
+      },
+      {
+        id: 'carretera-sec-line',
+        type: 'line',
+        source: 'carretera-sec',
+        'source-layer': 'carretera_sec',
+        minzoom: 8,
+        paint: {
+          'line-color': '#666666',
+          'line-width': 2,
+          'line-opacity': 0.7,
+          'line-dasharray': [2, 2]
+        }
+      },
+      {
+        id: 'carretera-ppal-line',
+        type: 'line',
+        source: 'carretera-ppal',
+        'source-layer': 'carretera_ppal',
+        minzoom: 8,
+        paint: {
+          'line-color': '#333333',
+          'line-width': 3,
+          'line-opacity': 0.8
+        }
       }
     ],
     center: [-8.5463, 42.8805],
@@ -236,7 +275,10 @@ export default function TabTwoScreen() {
           <Text style={styles.toggleText}>Share my position</Text>
           <Switch
             value={isSharing}
-            onValueChange={setIsSharing}
+            onValueChange={(value) => {
+              console.log('Position sharing toggled:', value);
+              setIsSharing(value);
+            }}
             trackColor={{ false: '#767577', true: '#81b0ff' }}
             thumbColor={isSharing ? '#007AFF' : '#f4f3f4'}
           />
@@ -250,6 +292,12 @@ export default function TabTwoScreen() {
         scrollEnabled={true}
         rotateEnabled={true}
         pitchEnabled={true}
+        onDidFinishLoadingMap={() => {
+          console.log('Map finished loading');
+        }}
+        onDidFailLoadingMap={() => {
+          console.error('Map failed to load');
+        }}
       >
         <ShapeSource id="shape" shape={{ type: "Point", coordinates: [-8.5463, 42.8805] }}>
           <CircleLayer

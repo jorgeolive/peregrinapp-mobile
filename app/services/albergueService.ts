@@ -35,10 +35,10 @@ export const fetchAlbergueDetails = async (albergueId: string): Promise<Albergue
   // Simulate network delay
   await new Promise(resolve => setTimeout(resolve, 500));
   
-  const albergue = mockAlbergues[albergueId];
-  if (!albergue) {
-    throw new Error(`Albergue with ID ${albergueId} not found`);
-  }
-  
-  return albergue;
+  // Get all mock albergue IDs
+  const albergueIds = Object.keys(mockAlbergues);
+  // Pick a random ID
+  const randomId = albergueIds[Math.floor(Math.random() * albergueIds.length)];
+  // Return the random albergue
+  return mockAlbergues[randomId];
 }; 
