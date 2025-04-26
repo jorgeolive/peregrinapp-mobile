@@ -34,7 +34,14 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "@maplibre/maplibre-react-native"
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you share them with other pilgrims.",
+          "cameraPermission": "The app accesses your camera to let you take profile pictures."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
