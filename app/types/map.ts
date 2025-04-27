@@ -2,6 +2,7 @@ export interface AlbergueFeature {
   id: string;
   properties: {
     name: string;
+    id: string;
     description?: string;
     [key: string]: any;
   };
