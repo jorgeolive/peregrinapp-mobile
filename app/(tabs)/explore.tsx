@@ -83,7 +83,7 @@ export default function TabTwoScreen() {
         id: 'background',
         type: 'background',
         paint: {
-          'background-color': '#FFF9E6'  // Light beige color that matches your map style
+          'background-color': '#E0F7FA'  // Light blue color
         }
       },
       {
@@ -116,7 +116,7 @@ export default function TabTwoScreen() {
         minzoom: 8,
         paint: {
           'line-color': '#FF0000',
-          'line-width': 3,
+          'line-width': 4,
           'line-opacity': [
             'interpolate',
             ['linear'],
