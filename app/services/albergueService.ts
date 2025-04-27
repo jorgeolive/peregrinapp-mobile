@@ -1,4 +1,5 @@
 import { AlbergueDetails } from '../types/map';
+import { API_BASE_URL } from '../config';
 
 // Mock data for albergues
 const mockAlbergues: Record<string, AlbergueDetails> = {
@@ -31,14 +32,11 @@ const mockAlbergues: Record<string, AlbergueDetails> = {
   }
 };
 
-export const fetchAlbergueDetails = async (albergueId: string): Promise<AlbergueDetails> => {
-  // Simulate network delay
-  await new Promise(resolve => setTimeout(resolve, 500));
-  
-  // Get all mock albergue IDs
-  const albergueIds = Object.keys(mockAlbergues);
-  // Pick a random ID
-  const randomId = albergueIds[Math.floor(Math.random() * albergueIds.length)];
-  // Return the random albergue
-  return mockAlbergues[randomId];
+export const fetchAlbergueDetails = async (_albergueId: string): Promise<AlbergueDetails> => {
+  const response = await fetch(`${API_BASE_URL}/peregrinapp/hostels/1`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch albergue details: ${response.status} ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data as AlbergueDetails;
 }; 

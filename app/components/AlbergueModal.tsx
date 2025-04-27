@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Modal, ActivityIndicator, Linking } from 'react-native';
 
 interface AlbergueFeature {
   properties: {
@@ -62,7 +62,13 @@ export const AlbergueModal: React.FC<AlbergueModalProps> = ({
               {albergueDetails.phone && (
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Phone:</Text>
-                  <Text style={styles.detailText}>{albergueDetails.phone}</Text>
+                  <TouchableOpacity
+                    onPress={() => Linking.openURL(`tel:${albergueDetails.phone?.replace(/\s+/g, '')}`)}
+                  >
+                    <Text style={[styles.detailText, { color: '#007AFF', textDecorationLine: 'underline' }]}>
+                      {albergueDetails.phone}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               )}
               {albergueDetails.email && (
