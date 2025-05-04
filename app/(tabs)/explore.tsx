@@ -1,4 +1,4 @@
-import { StyleSheet, View, Text, Switch } from 'react-native';
+import { StyleSheet, View, Text, Switch, TouchableOpacity, Alert, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   CircleLayer,
@@ -6,8 +6,13 @@ import {
   ShapeSource,
   MapViewRef,
   LineLayer,
+  UserLocation,
+  Camera,
+  UserTrackingMode
 } from "@maplibre/maplibre-react-native";
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import * as Location from 'expo-location';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { AlbergueModal } from '../components/AlbergueModal';
 import { AlbergueFeature, MapStyle } from '../types/map';
 import { fetchAlbergueDetails } from '../services/albergueService';
@@ -24,6 +29,92 @@ export default function TabTwoScreen() {
   const [stageDetails, setStageDetails] = useState<StageDetails | null>(null);
   const [isStageModalVisible, setIsStageModalVisible] = useState(false);
   const [isStageLoading, setIsStageLoading] = useState(false);
+  const [locationPermission, setLocationPermission] = useState(false);
+  const [userLocation, setUserLocation] = useState<null | {
+    longitude: number;
+    latitude: number;
+  }>(null);
+  const [followUserLocation, setFollowUserLocation] = useState(false);
+
+  // Request location permissions when the component mounts
+  useEffect(() => {
+    requestLocationPermission();
+  }, []);
+
+  const requestLocationPermission = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      setLocationPermission(status === 'granted');
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          'Location Permission',
+          'Location permission is required to show your position on the map.'
+        );
+      } else {
+        // Get initial location if permission is granted
+        try {
+          console.log('Getting initial location...');
+          const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+          console.log('Location data:', location);
+          console.log('Coordinates:', {
+            longitude: location.coords.longitude,
+            latitude: location.coords.latitude,
+            accuracy: location.coords.accuracy,
+            altitude: location.coords.altitude,
+            heading: location.coords.heading,
+            speed: location.coords.speed
+          });
+          setUserLocation({
+            longitude: location.coords.longitude,
+            latitude: location.coords.latitude
+          });
+        } catch (error) {
+          console.error('Error getting initial location:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Error requesting location permission:', error);
+    }
+  };
+
+  // Function to center the map on user location
+  const centerOnUserLocation = async () => {
+    if (!locationPermission) {
+      console.log('No location permission, requesting permission...');
+      requestLocationPermission();
+      return;
+    }
+    
+    console.log('Centering on user location...');
+    try {
+      console.log('Getting current position...');
+      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      console.log('Current position retrieved:', {
+        longitude: location.coords.longitude,
+        latitude: location.coords.latitude,
+        accuracy: location.coords.accuracy
+      });
+      
+      setUserLocation({
+        longitude: location.coords.longitude,
+        latitude: location.coords.latitude
+      });
+      
+      // Enable follow mode temporarily
+      console.log('Enabling follow mode...');
+      setFollowUserLocation(true);
+      
+      // After a short delay, disable follow mode to allow manual panning
+      setTimeout(() => {
+        console.log('Disabling follow mode...');
+        setFollowUserLocation(false);
+      }, 2000);
+    } catch (error) {
+      console.error('Error getting current location:', error);
+      Alert.alert('Error', 'Could not determine your location. Please check your device settings.');
+    }
+  };
 
   const handleAlberguePress = async (event: any) => {
     console.log('Albergue press event:', event);
@@ -399,12 +490,30 @@ export default function TabTwoScreen() {
           console.error('Map failed to load');
         }}
       >
+        {userLocation && (
+          <Camera
+            zoomLevel={14}
+            centerCoordinate={[userLocation.longitude, userLocation.latitude]}
+            followUserLocation={followUserLocation}
+            followUserMode={UserTrackingMode.Follow}
+            followZoomLevel={14}
+          />
+        )}
+        
+        <UserLocation
+          visible={true}
+          showsUserHeadingIndicator={true}
+          animated={true}
+          renderMode={Platform.OS === 'android' ? 'native' : 'normal'} 
+        />
+        
         <ShapeSource id="shape" shape={{ type: "Point", coordinates: [-8.5463, 42.8805] }}>
           <CircleLayer
             id="circle"
             style={{ circleRadius: 8, circleColor: "red" }}
           />
         </ShapeSource>
+        
         <ShapeSource
           id="albergues"
           url="http://10.0.2.2:8080/geoserver/peregrinapp/gwc/service/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&LAYER=peregrinapp:camino_norte_albergues&STYLE=&TILEMATRIX=EPSG:900913:{z}&TILEMATRIXSET=EPSG:900913&FORMAT=application/vnd.mapbox-vector-tile&TILECOL={x}&TILEROW={y}"
@@ -434,6 +543,7 @@ export default function TabTwoScreen() {
             }}
           />
         </ShapeSource>
+        
         <ShapeSource
           id="camino-norte"
           url="http://10.0.2.2:8080/geoserver/peregrinapp/gwc/service/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&LAYER=peregrinapp:camino_norte&STYLE=&TILEMATRIX=EPSG:900913:{z}&TILEMATRIXSET=EPSG:900913&FORMAT=application/vnd.mapbox-vector-tile&TILECOL={x}&TILEROW={y}"
@@ -507,6 +617,12 @@ export default function TabTwoScreen() {
           />
         </ShapeSource>
       </MapView>
+      
+      {/* Add the location button */}
+      <TouchableOpacity style={styles.locationButton} onPress={centerOnUserLocation}>
+        <MaterialIcons name="my-location" size={24} color="#007AFF" />
+      </TouchableOpacity>
+      
       <AlbergueModal
         selectedAlbergue={selectedAlbergue}
         albergueDetails={albergueDetails}
@@ -544,5 +660,21 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  locationButton: {
+    position: 'absolute',
+    bottom: 16,
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'white',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
 });

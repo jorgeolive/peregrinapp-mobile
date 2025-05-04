@@ -22,6 +22,11 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
 adb shell pm clear com.anonymous.peregrinapp
 ```
 
+4. Enforce coordinates 
+
+```bash
+adb emu geo fix -8.544844 42.880447
+```
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)
