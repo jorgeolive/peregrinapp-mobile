@@ -504,6 +504,7 @@ export default function TabTwoScreen() {
           visible={true}
           showsUserHeadingIndicator={true}
           animated={true}
+          androidRenderMode = "compass"
           renderMode={Platform.OS === 'android' ? 'native' : 'normal'} 
         />
         
