@@ -16,6 +16,12 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
      npx expo run:android
    ```
 
+3. Reset AsyncStorage in emulator
+
+```bash
+adb shell pm clear com.anonymous.peregrinapp
+```
+
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)

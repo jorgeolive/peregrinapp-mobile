@@ -86,9 +86,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.anonymous.testapp'
+    namespace 'com.anonymous.peregrinapp'
     defaultConfig {
-        applicationId 'com.anonymous.testapp'
+        applicationId 'com.anonymous.peregrinapp'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
