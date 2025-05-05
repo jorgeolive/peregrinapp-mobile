@@ -1,5 +1,6 @@
 import { AlbergueDetails } from '../types/map';
 import { API_BASE_URL } from '../config';
+import { getAuthHeader } from './userService';
 
 // Mock data for albergues
 const mockAlbergues: Record<string, AlbergueDetails> = {
@@ -33,7 +34,9 @@ const mockAlbergues: Record<string, AlbergueDetails> = {
 };
 
 export const fetchAlbergueDetails = async (_albergueId: string): Promise<AlbergueDetails> => {
-  const response = await fetch(`${API_BASE_URL}/peregrinapp/hostels/1`);
+  const headers = await getAuthHeader();
+  const response = await fetch(`${API_BASE_URL}/peregrinapp/hostels/1`, { headers });
+  
   if (!response.ok) {
     throw new Error(`Failed to fetch albergue details: ${response.status} ${response.statusText}`);
   }
