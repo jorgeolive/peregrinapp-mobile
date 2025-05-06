@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8' />
+    <title>MapLibre Test</title>
+    <meta name='viewport' content='initial-scale=1,maximum-scale=1,user-scalable=no' />
+    <script src='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.js'></script>
+    <link href='https://unpkg.com/maplibre-gl@2.4.0/dist/maplibre-gl.css' rel='stylesheet' />
+    <style>
+        body { margin: 0; padding: 0; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+    </style>
+</head>
+<body>
+    <div id='map'></div>
+    <script>
+        const map = new maplibregl.Map({
+            container: 'map',
+            style: {
+                version: 8,
+                sources: {
+                    'camino-norte': {
+                        type: 'vector',
+                        tiles: ['http://192.168.45.156:8080/geoserver/gwc/service/tms/1.0.0/peregrinapp:camino_norte@EPSG:3857@MVT/{z}/{x}/{y}.pbf']
+                    },
+                    'regiones-es': {
+                        type: 'vector',
+                        tiles: ['http://192.168.45.156:8080/geoserver/gwc/service/tms/1.0.0/peregrinapp:regiones_es@EPSG:3857@MVT/{z}/{x}/{y}.pbf']
+                    }
+                },
+                layers: [
+                    {
+                        id: 'regiones-es-fill',
+                        type: 'fill',
+                        source: 'regiones-es',
+                        'source-layer': 'regiones_es',
+                        paint: {
+                            'fill-color': '#627BC1',
+                            'fill-opacity': 0.2
+                        }
+                    },
+                    {
+                        id: 'regiones-es-line',
+                        type: 'line',
+                        source: 'regiones-es',
+                        'source-layer': 'regiones_es',
+                        paint: {
+                            'line-color': '#627BC1',
+                            'line-width': 1
+                        }
+                    },
+                    {
+                        id: 'camino-norte-line',
+                        type: 'line',
+                        source: 'camino-norte',
+                        'source-layer': 'camino_norte',
+                        paint: {
+                            'line-color': '#FF0000',
+                            'line-width': 3
+                        }
+                    }
+                ]
+            },
+            center: [-8.5463, 42.8805],
+            zoom: 8
+        });
+
+        // Add navigation controls
+        map.addControl(new maplibregl.NavigationControl());
+
+        // Add error handling
+        map.on('error', (e) => {
+            console.error('Map error:', e);
+        });
+
+        // Add source error handling
+        map.on('sourcedata', (e) => {
+            if (e.sourceId && e.error) {
+                console.error('Source error:', e.sourceId, e.error);
+            }
+        });
+    </script>
+</body>
+</html> 

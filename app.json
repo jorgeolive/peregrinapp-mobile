@@ -34,7 +34,24 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "@maplibre/maplibre-react-native"
+      "@maplibre/maplibre-react-native",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you share them with other pilgrims.",
+          "cameraPermission": "The app accesses your camera to let you take profile pictures."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Peregrinapp to use your location to show your position on the map.",
+          "locationAlwaysPermission": "Allow Peregrinapp to use your location even when the app is in background.",
+          "locationWhenInUsePermission": "Allow Peregrinapp to use your location to show your position on the map.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
