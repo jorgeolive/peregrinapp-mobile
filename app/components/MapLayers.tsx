@@ -1,21 +1,138 @@
 import React from 'react';
-import { CircleLayer, LineLayer, ShapeSource } from "@maplibre/maplibre-react-native";
+import { CircleLayer, LineLayer, ShapeSource, SymbolLayer } from "@maplibre/maplibre-react-native";
 import { AlbergueFeature } from '../types/map';
+
+interface OtherUser {
+  id: string;
+  name: string;
+  longitude: number;
+  latitude: number;
+  color?: string;
+}
 
 interface MapLayersProps {
   onAlberguePress: (event: any) => void;
   onStagePress: (event: any) => void;
+  userLocation?: { longitude: number; latitude: number } | null;
+  showCustomUserMarker?: boolean;
+  otherUsers?: OtherUser[];
 }
 
-export const MapLayers: React.FC<MapLayersProps> = ({ onAlberguePress, onStagePress }) => {
+export const MapLayers: React.FC<MapLayersProps> = ({ 
+  onAlberguePress, 
+  onStagePress,
+  userLocation,
+  showCustomUserMarker = false,
+  otherUsers = []
+}) => {
   return (
     <>
-      <ShapeSource id="shape" shape={{ type: "Point", coordinates: [-8.5463, 42.8805] }}>
-        <CircleLayer
-          id="circle"
-          style={{ circleRadius: 8, circleColor: "red" }}
-        />
-      </ShapeSource>
+      {/* Other users */}
+      {otherUsers.map(user => (
+        <ShapeSource 
+          key={`other-user-${user.id}`}
+          id={`other-user-${user.id}`}
+          shape={{
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: [user.longitude, user.latitude]
+            },
+            properties: {
+              name: user.name
+            }
+          }}
+        >
+          {/* Outer ring */}
+          <CircleLayer
+            id={`other-user-halo-${user.id}`}
+            style={{
+              circleRadius: 14,
+              circleColor: `rgba(${user.color || '255, 87, 34'}, 0.2)`,
+              circleStrokeWidth: 1,
+              circleStrokeColor: `rgba(${user.color || '255, 87, 34'}, 0.4)`
+            }}
+          />
+          
+          {/* Inner circle */}
+          <CircleLayer
+            id={`other-user-circle-${user.id}`}
+            style={{
+              circleRadius: 7,
+              circleColor: `rgb(${user.color || '255, 87, 34'})`,
+              circleStrokeWidth: 2,
+              circleStrokeColor: '#ffffff'
+            }}
+          />
+          
+          {/* User label */}
+          <SymbolLayer
+            id={`other-user-label-${user.id}`}
+            style={{
+              textField: ['get', 'name'],
+              textSize: 12,
+              textOffset: [0, 2.0],
+              textAnchor: 'top',
+              textColor: '#000',
+              textHaloColor: '#fff',
+              textHaloWidth: 1
+            }}
+          />
+        </ShapeSource>
+      ))}
+      
+      {/* Custom user location marker */}
+      {showCustomUserMarker && userLocation && (
+        <ShapeSource 
+          id="custom-user-location"
+          shape={{
+            type: 'Feature',
+            geometry: {
+              type: 'Point',
+              coordinates: [userLocation.longitude, userLocation.latitude]
+            },
+            properties: {
+              name: 'You'
+            }
+          }}
+        >
+          {/* Outer ring - light blue halo */}
+          <CircleLayer
+            id="custom-user-circle-halo"
+            style={{
+              circleRadius: 15,
+              circleColor: 'rgba(25, 118, 210, 0.2)',
+              circleStrokeWidth: 1,
+              circleStrokeColor: 'rgba(25, 118, 210, 0.4)'
+            }}
+          />
+          
+          {/* Inner circle - blue dot */}
+          <CircleLayer
+            id="custom-user-circle"
+            style={{
+              circleRadius: 8,
+              circleColor: '#1976D2',
+              circleStrokeWidth: 2,
+              circleStrokeColor: '#ffffff'
+            }}
+          />
+          
+          {/* User label */}
+          <SymbolLayer
+            id="custom-user-label"
+            style={{
+              textField: ['get', 'name'],
+              textSize: 12,
+              textOffset: [0, 2.2],
+              textAnchor: 'top',
+              textColor: '#000',
+              textHaloColor: '#fff',
+              textHaloWidth: 1
+            }}
+          />
+        </ShapeSource>
+      )}
       
       <ShapeSource
         id="albergues"

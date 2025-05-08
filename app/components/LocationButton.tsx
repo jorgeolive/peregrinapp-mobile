@@ -16,9 +16,6 @@ export const LocationButton: React.FC<LocationButtonProps> = ({ onPress }) => {
 
 const styles = StyleSheet.create({
   locationButton: {
-    position: 'absolute',
-    bottom: 16,
-    right: 16,
     width: 48,
     height: 48,
     borderRadius: 24,
