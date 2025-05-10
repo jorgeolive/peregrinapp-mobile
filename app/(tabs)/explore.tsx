@@ -7,7 +7,7 @@ import {
   Camera,
   UserTrackingMode
 } from "@maplibre/maplibre-react-native";
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { AlbergueModal } from '../components/AlbergueModal';
 import { AlbergueFeature } from '../types/map';
 import { fetchAlbergueDetails } from '../services/albergueService';
@@ -20,6 +20,8 @@ import { LocationButton } from '../components/LocationButton';
 import { mapStyle } from '../components/MapStyles';
 import socketService, { UserData } from '../services/socketService';
 import { useAuth } from '../context/AuthContext';
+import { getUserDetails } from '../services/userService';
+import { UserDetailsModal } from '../components/UserDetailsModal';
 
 // Define the user's hardcoded position
 const HARDCODED_POSITION = {
@@ -27,46 +29,17 @@ const HARDCODED_POSITION = {
   latitude: 42.880447
 };
 
-// Define other users nearby (fallback when socket is not connected)
-const NEARBY_USERS = [
-  {
-    id: '1',
-    name: 'Maria',
-    longitude: -8.543901,
-    latitude: 42.879986,
-    color: '233, 30, 99' // Pink
-  },
-  {
-    id: '2',
-    name: 'Carlos',
-    longitude: -8.545823,
-    latitude: 42.881234,
-    color: '156, 39, 176' // Purple
-  },
-  {
-    id: '3',
-    name: 'John',
-    longitude: -8.543256,
-    latitude: 42.881798,
-    color: '0, 150, 136' // Teal
-  },
-  {
-    id: '4',
-    name: 'Sofia',
-    longitude: -8.546412,
-    latitude: 42.879532,
-    color: '255, 152, 0' // Orange
-  },
-  {
-    id: '5',
-    name: 'Ahmed',
-    longitude: -8.544112,
-    latitude: 42.882314,
-    color: '121, 85, 72' // Brown
-  }
-];
-
 export default function ExploreScreen() {
+  // Add render counter for debugging
+  const renderCount = useRef(0);
+  useEffect(() => {
+    renderCount.current += 1;
+    // Only log every 10th render to reduce noise
+    if (renderCount.current === 1 || renderCount.current % 10 === 0) {
+      console.log(`ExploreScreen render #${renderCount.current}`);
+    }
+  });
+  
   const { user } = useAuth();
   const [selectedAlbergue, setSelectedAlbergue] = useState<AlbergueFeature | null>(null);
   const [albergueDetails, setAlbergueDetails] = useState<any>(null);
@@ -79,17 +52,50 @@ export default function ExploreScreen() {
   const followTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [useCustomMarker, setUseCustomMarker] = useState(false);
   const [showOtherUsers, setShowOtherUsers] = useState(true);
-  const [otherUsers, setOtherUsers] = useState(NEARBY_USERS);
+  const [otherUsers, setOtherUsers] = useState<{
+    id: string;
+    name: string;
+    longitude: number;
+    latitude: number;
+    color: string;
+  }[]>([]);
   const [isConnectedToSocket, setIsConnectedToSocket] = useState(false);
   
+  // Add state to track current zoom level
+  const [currentZoomLevel, setCurrentZoomLevel] = useState(6);
+  
+  // User details modal state
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [isUserDetailsLoading, setIsUserDetailsLoading] = useState(false);
+  const [userDetailsError, setUserDetailsError] = useState<string | null>(null);
+  const [userDetails, setUserDetails] = useState<{
+    name: string;
+    bio: string;
+    enableDms: boolean;
+  } | null>(null);
+  
   // Use actual location or fallback to hardcoded position
-  const { userLocation: actualLocation, getCurrentLocation } = useLocation();
-  const userLocation = actualLocation || HARDCODED_POSITION;
+  const { userLocation: actualLocation, getCurrentLocation, startLocationWatcher } = useLocation();
+  
+  // Memoize the userLocation to prevent unnecessary re-renders
+  const userLocation = useMemo(() => {
+    return actualLocation || HARDCODED_POSITION;
+  }, [actualLocation?.latitude, actualLocation?.longitude]);
+  
+  // Track if location updates have been initialized
+  const locationUpdatesInitialized = useRef(false);
+  // Track if test user has been added
+  const testUserAdded = useRef(false);
+  // Track if location watcher has been started
+  const locationWatcherStarted = useRef(false);
   
   // Initialize socket and listen for user updates
   useEffect(() => {
+    console.log('Socket initialization useEffect running, user:', user?.id);
+    
     if (user) {
       // Initialize socket connection
+      console.log('Attempting to initialize socket connection');
       socketService.init().then(() => {
         setIsConnectedToSocket(true);
         console.log('Socket connected in explore screen');
@@ -99,19 +105,82 @@ export default function ExploreScreen() {
       });
       
       // Set up callback for user updates from socket
+      console.log('Setting up socket.setOnUsersUpdate callback');
       socketService.setOnUsersUpdate((users: UserData[]) => {
-        // Transform users from socket to the format needed by MapLayers
+        console.log('Socket users_update event received with users:', users.length);
+        
+        // Debug raw user data
+        users.forEach(u => {
+          console.log(`Raw user data - id: ${u.id}, name: ${u.name}, location:`, 
+            u.location ? `long: ${u.location.longitude} (${typeof u.location.longitude}), lat: ${u.location.latitude} (${typeof u.location.latitude})` : 'null');
+            
+          // Create a test user at the exact same coordinates as the socket user
+          if (u.location) {
+            const testUserId = `test-clone-${u.id}`;
+            console.log(`Creating test clone user ${testUserId} at exact same coordinates`);
+            
+            const testClone = {
+              id: testUserId,
+              name: `Clone of ${u.name}`,
+              longitude: u.location.longitude,
+              latitude: u.location.latitude,
+              color: '255, 0, 0' // Red color
+            };
+            
+            // Update otherUsers with this clone
+            setOtherUsers(prev => {
+              if (!prev.find(pu => pu.id === testUserId)) {
+                return [...prev, testClone];
+              }
+              return prev;
+            });
+          }
+        });
+        
+        // Transform users from socket to the format needed by MapLayers with proper coordinate handling
         const transformedUsers = users
           .filter(u => u.id !== user.id && u.location) // Filter out current user and users without location
-          .map(u => ({
-            id: u.id,
-            name: u.name,
-            longitude: u.location?.longitude || 0,
-            latitude: u.location?.latitude || 0,
-            color: getRandomColor(u.id) // Assign a color based on user ID
-          }));
+          .map(u => {
+            // Create a proper user object with correct types
+            const otherUser: {
+              id: string;
+              name: string;
+              longitude: number;
+              latitude: number;
+              color: string;
+            } = {
+              id: String(u.id),
+              name: u.name,
+              // Ensure coordinates are properly converted to numbers
+              longitude: parseFloat(String(u.location?.longitude)),
+              latitude: parseFloat(String(u.location?.latitude)),
+              // Ensure color is always a string
+              color: '255, 87, 34' // Use a default color for all users
+            };
+            
+            console.log(`Transformed user ${otherUser.name}: longitude=${otherUser.longitude}, latitude=${otherUser.latitude}`);
+            return otherUser;
+          });
         
-        setOtherUsers(transformedUsers);
+        console.log('Setting otherUsers with:', JSON.stringify(transformedUsers));
+        
+        // Only update if we have users, prevent setting an empty array
+        if (transformedUsers.length > 0) {
+          setOtherUsers(prev => {
+            // Combine transformed users with existing test user
+            const existingTestUser = prev.find(u => u.id === 'test-user-static');
+            const combinedUsers = [...transformedUsers];
+            
+            if (existingTestUser) {
+              combinedUsers.push(existingTestUser);
+            }
+            
+            console.log('Combined users array:', JSON.stringify(combinedUsers));
+            return combinedUsers;
+          });
+        } else {
+          console.log('Not updating otherUsers because transformedUsers is empty');
+        }
       });
     }
     
@@ -120,6 +189,29 @@ export default function ExploreScreen() {
       socketService.disconnect();
     };
   }, [user]);
+  
+  // Add a new useEffect to start location updates when the map loads
+  useEffect(() => {
+    // Only start location updates if user is logged in and socket is connected
+    // and we haven't already initialized updates
+    if (user && isConnectedToSocket && !locationUpdatesInitialized.current) {
+      console.log('[ExploreScreen] Setting up location updates for the map');
+      locationUpdatesInitialized.current = true;
+      
+      // Make sure the location function is available
+      socketService.setPositionFunction(getCurrentLocation);
+      
+      // Check if location sharing is already enabled
+      socketService.getLocationSharingPreference().then(sharingEnabled => {
+        if (sharingEnabled) {
+          console.log('[ExploreScreen] Location sharing is enabled, starting updates');
+          socketService.startLocationUpdates(getCurrentLocation);
+        } else {
+          console.log('[ExploreScreen] Location sharing is disabled, not starting updates');
+        }
+      });
+    }
+  }, [user, isConnectedToSocket]); // Removed getCurrentLocation from dependencies
   
   // Function to generate a consistent color for a user based on their ID
   const getRandomColor = (userId: string) => {
@@ -194,6 +286,81 @@ export default function ExploreScreen() {
     }
   };
 
+  // Handle user marker click
+  const handleUserPress = async (userId: string) => {
+    // Prevent camera updates when pressing user markers
+    setFollowUserLocation(false);
+    if (followTimeoutRef.current) {
+      clearTimeout(followTimeoutRef.current);
+      followTimeoutRef.current = null;
+    }
+    
+    // Find the user in our local state to get their name
+    const clickedUser = otherUsers.find(u => u.id === userId);
+    console.log(`[ExploreScreen] User marker clicked for userId: ${userId}, name: ${clickedUser?.name || 'unknown'}`);
+    
+    setSelectedUserId(userId);
+    setIsUserDetailsLoading(true);
+    setUserDetailsError(null);
+    setUserDetails(null);
+    
+    try {
+      console.log(`[ExploreScreen] Fetching user details for userId: ${userId}`);
+      const response = await getUserDetails(userId);
+      console.log(`[ExploreScreen] User details response:`, JSON.stringify(response));
+      
+      if (response.success && response.user) {
+        console.log(`[ExploreScreen] Successfully fetched user details for: ${response.user.name}`);
+        setUserDetails({
+          name: response.user.name,
+          bio: response.user.bio,
+          enableDms: response.user.enableDms
+        });
+      } else {
+        console.error(`[ExploreScreen] Failed to fetch user details: ${response.message}`);
+        setUserDetailsError(response.message || 'Failed to load user details');
+      }
+    } catch (error) {
+      console.error('[ExploreScreen] Error in handleUserPress:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`[ExploreScreen] Error details: ${errorMessage}`);
+      setUserDetailsError('Network error loading user details');
+    } finally {
+      setIsUserDetailsLoading(false);
+    }
+  };
+  
+  // Close user details modal
+  const handleCloseUserModal = () => {
+    setSelectedUserId(null);
+    setUserDetails(null);
+    setUserDetailsError(null);
+  };
+  
+  // Handle send DM action
+  const handleSendDM = () => {
+    // TODO: Implement DM functionality or navigation to DM screen
+    console.log(`Send DM to user ${selectedUserId}`);
+    handleCloseUserModal();
+    // Navigate to DM screen if needed
+  };
+
+  // Add useEffect to start location watcher on mount
+  useEffect(() => {
+    if (user && !locationWatcherStarted.current) {
+      console.log('[ExploreScreen] Starting location watcher on component mount');
+      startLocationWatcher().then(success => {
+        locationWatcherStarted.current = success;
+        console.log(`[ExploreScreen] Location watcher started: ${success}`);
+      });
+    }
+    
+    return () => {
+      console.log('[ExploreScreen] Cleaning up');
+    };
+  }, [user, startLocationWatcher]);
+  
+  // Modify the centerOnUserLocation function to be memoized
   const centerOnUserLocation = useCallback(async () => {
     // Clear any existing timeout
     if (followTimeoutRef.current) {
@@ -222,7 +389,7 @@ export default function ExploreScreen() {
         followTimeoutRef.current = null;
       }, 2000);
     }
-  }, [getCurrentLocation]);
+  }, []); // Remove getCurrentLocation dependency
 
   // Toggle between custom and standard user marker
   const toggleUserMarker = () => {
@@ -243,6 +410,71 @@ export default function ExploreScreen() {
     };
   }, []);
 
+  // Debug otherUsers state - only log when there's actually a change
+  useEffect(() => {
+    if (renderCount.current > 2) { // Skip initial renders
+      console.log('otherUsers state updated:', JSON.stringify(showOtherUsers ? otherUsers : []));
+    }
+  }, [otherUsers.length]); // Only react to length changes, not every detail
+
+  // Create a static test user that will always be visible
+  useEffect(() => {
+    if (userLocation && !testUserAdded.current) {
+      console.log('Adding static test user');
+      testUserAdded.current = true;
+      
+      // Log test user details in great detail
+      const testLongitude = userLocation.longitude + 0.0008;
+      const testLatitude = userLocation.latitude + 0.0008;
+      
+      console.log(`Creating test user at: long=${testLongitude} (${typeof testLongitude}), lat=${testLatitude} (${typeof testLatitude})`);
+      
+      // Define test user with proper type matching other transformed users
+      const testUser: {
+        id: string;
+        name: string;
+        longitude: number;
+        latitude: number;
+        color: string;
+      } = {
+        id: 'test-user-static',
+        name: 'Static Test User',
+        longitude: testLongitude,
+        latitude: testLatitude,
+        color: '0, 0, 255' // Blue color
+      };
+      
+      // Add test user without removing any existing users from socket
+      setOtherUsers(current => {
+        // Only add if not already present
+        if (!current.find(u => u.id === testUser.id)) {
+          return [...current, testUser];
+        }
+        return current;
+      });
+    }
+  }, []); // Empty dependency array to run only once
+  
+  // Check distance between current user and other users - optimize to prevent excessive logging
+  const calculateDistancesRef = useRef(0);
+  useEffect(() => {
+    // Only calculate distances occasionally to avoid performance issues
+    if (userLocation && otherUsers.length > 0 && calculateDistancesRef.current % 10 === 0) {
+      console.log('Calculating distances to other users');
+      
+      otherUsers.forEach(other => {
+        // Simple approximate distance calculation
+        const latDiff = Math.abs(userLocation.latitude - other.latitude);
+        const lonDiff = Math.abs(userLocation.longitude - other.longitude);
+        
+        console.log(`User ${other.name} coordinates: ${other.longitude}, ${other.latitude}`);
+        console.log(`Distance from current user (approx degrees): lat: ${latDiff.toFixed(6)}, lon: ${lonDiff.toFixed(6)}`);
+        console.log(`1 degree latitude ≈ 111 km, so approx distance: ${(latDiff * 111).toFixed(2)} km`);
+      });
+    }
+    calculateDistancesRef.current += 1;
+  }, [userLocation, otherUsers.length]); // Only react to significant changes
+
   return (
     <SafeAreaView style={styles.container}>
       <MapView
@@ -261,14 +493,21 @@ export default function ExploreScreen() {
             followTimeoutRef.current = null;
           }
         }}
+        onRegionDidChange={(e) => {
+          // Track zoom level changes when the user interacts with the map
+          if (e.properties.zoomLevel) {
+            setCurrentZoomLevel(e.properties.zoomLevel);
+            console.log(`[ExploreScreen] Map zoom level changed to: ${e.properties.zoomLevel}`);
+          }
+        }}
       >
         {userLocation && followUserLocation && (
           <Camera
-            zoomLevel={14}
+            zoomLevel={currentZoomLevel}
             centerCoordinate={[userLocation.longitude, userLocation.latitude]}
             followUserLocation={followUserLocation}
             followUserMode={UserTrackingMode.Follow}
-            followZoomLevel={14}
+            followZoomLevel={currentZoomLevel}
           />
         )}
         
@@ -286,6 +525,7 @@ export default function ExploreScreen() {
         <MapLayers
           onAlberguePress={handleAlberguePress}
           onStagePress={handleStagePress}
+          onUserPress={handleUserPress}
           userLocation={userLocation}
           showCustomUserMarker={useCustomMarker}
           otherUsers={showOtherUsers ? otherUsers : []}
@@ -332,6 +572,17 @@ export default function ExploreScreen() {
         stageDetails={stageDetails}
         isLoading={isStageLoading}
         onClose={() => setIsStageModalVisible(false)}
+      />
+      <UserDetailsModal
+        visible={!!selectedUserId}
+        userId={selectedUserId || undefined}
+        username={userDetails?.name}
+        userBio={userDetails?.bio}
+        enableDms={userDetails?.enableDms}
+        loading={isUserDetailsLoading}
+        error={userDetailsError || undefined}
+        onClose={handleCloseUserModal}
+        onSendDM={handleSendDM}
       />
     </SafeAreaView>
   );

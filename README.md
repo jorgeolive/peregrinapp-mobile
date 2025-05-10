@@ -28,6 +28,96 @@ adb shell pm clear com.anonymous.peregrinapp
 ```bash
 adb emu geo fix -8.544844 42.880447
 ```
+
+## Running multiple emulators for testing
+
+To test user interaction features like location sharing and DMs, you can run multiple emulators simultaneously:
+
+### Using the command line
+
+1. List available emulators:
+   ```bash
+   emulator -list-avds
+   ```
+
+2. Start the first emulator on port 5554:
+   ```bash
+   emulator -avd EmulatorName1 -port 5554
+   ```
+
+3. Start the second emulator on port 5556:
+   ```bash
+   emulator -avd EmulatorName2 -port 5556
+   ```
+
+4. Verify both devices are running:
+   ```bash
+   adb devices
+   ```
+
+5. Install and run the app on both emulators:
+   ```bash
+   # First, list available devices as Expo sees them
+   npx expo run:android --list
+   
+   # Run on the first emulator (use the name from the list above)
+   npx expo run:android --device "Pixel_6_API_33"
+   
+   # Run on the second emulator
+   npx expo run:android --device "Pixel_7_API_34"
+   ```
+
+6. Set different positions for each emulator:
+   ```bash
+   # For the first emulator (specify by port or device ID)
+   adb -s emulator-5554 emu geo fix -8.544844 42.880447
+   
+   # For the second emulator (nearby location)
+   adb -s emulator-5556 emu geo fix -8.543901 42.879986
+   ```
+
+### Using Android Studio
+
+1. Open Android Studio
+2. Click "Device Manager" in the toolbar
+3. Click the play button next to two different virtual devices
+4. Both emulators will launch separately
+5. Install the app on both emulators using Expo CLI
+
+## Building and deploying APKs
+
+To create APKs and deploy them to emulators:
+
+1. **Create a development build APK**:
+   ```bash
+   npx expo prebuild --platform android
+   cd android
+   ./gradlew assembleDebug
+   ```
+   This creates an APK at `android/app/build/outputs/apk/debug/app-debug.apk`
+
+2. **Install to second emulator**:
+   ```bash
+   adb devices -l # Verify your emulators are connected
+   adb -s emulator-5556 install -r D:\UOC\TFG\peregrinapp-mobile\android\app\build\outputs\apk\debug\app-debug.apk
+   ```
+
+3. **Install to specific emulator** (if you have multiple):
+   ```bash
+   # For the first emulator
+   adb -s emulator-5554 install -r android/app/build/outputs/apk/debug/app-debug.apk
+   
+   # For the second emulator
+   adb -s emulator-5556 install -r android/app/build/outputs/apk/debug/app-debug.apk
+   ```
+
+4. **Creating a release APK** (for distribution testing):
+   ```bash
+   cd android
+   ./gradlew assembleRelease
+   ```
+   The release APK will be at `android/app/build/outputs/apk/release/app-release.apk`
+
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)

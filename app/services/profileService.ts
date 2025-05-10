@@ -8,7 +8,6 @@ import { getAuthHeader } from './userService';
 export const updateUserProfile = async (
   profileData: {
     bio?: string;
-    sharePosition?: boolean;
     enableDms?: boolean;
   }
 ): Promise<{ success: boolean; message?: string; user?: User }> => {

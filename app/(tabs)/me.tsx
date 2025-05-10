@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, TextInput, View, Switch, Alert, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../context/AuthContext';
 import { updateUserProfile } from '../services/profileService';
@@ -14,7 +14,9 @@ export default function MeScreen() {
   const [allowDirectMessages, setAllowDirectMessages] = useState(false);
   const [sharePosition, setSharePosition] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const { getCurrentLocation } = useLocation();
+  const { getCurrentLocation, startLocationWatcher, stopLocationWatcher } = useLocation();
+  // Ref to track the last time we started location updates to prevent loops
+  const lastUpdateStartTime = useRef(0);
 
   // Load initial settings from user object and AsyncStorage
   useEffect(() => {
@@ -34,21 +36,35 @@ export default function MeScreen() {
 
   // Initialize socket connection when component mounts or when sharePosition changes
   useEffect(() => {
-    // This effect now only needs to ensure the location function is passed to socketService
+    // Only proceed if user is logged in and wants to share position
     if (user && sharePosition) {
-      console.log('[MeScreen] User has location sharing enabled, ensuring socket is connected');
-      // Check if socket is already initialized and authenticated before trying to restart
-      if (!socketService.isSocketAuthenticated()) {
-        console.log('[MeScreen] Socket not authenticated, initializing');
-        socketService.init().then(initialized => {
-          if (initialized) {
-            socketService.startLocationUpdates(getCurrentLocation);
-          }
-        });
-      } else if (socketService.isLocationSharingEnabled()) {
-        console.log('[MeScreen] Socket already authenticated, updating location function');
-        socketService.startLocationUpdates(getCurrentLocation);
+      const now = Date.now();
+      // Prevent restarting the location updates if less than 5 seconds have passed
+      if (now - lastUpdateStartTime.current < 5000) {
+        console.log('[MeScreen] Skipping redundant location update restart (too soon)');
+        return;
       }
+      
+      console.log('[MeScreen] User has location sharing enabled, ensuring socket is connected');
+      
+      // Update the last start time
+      lastUpdateStartTime.current = now;
+      
+      // Always make sure the location function is available
+      console.log('[MeScreen] Setting getCurrentLocation function in socketService');
+      socketService.setPositionFunction(getCurrentLocation);
+      
+      // Force restart the interval to ensure it's running
+      console.log('[MeScreen] Forcing restart of location updates interval');
+      socketService.forceRestartInterval();
+      
+      // Also start the location watcher for smooth map updates
+      console.log('[MeScreen] Starting location watcher');
+      startLocationWatcher();
+    } else if (!sharePosition) {
+      // If sharing is disabled, stop the location watcher
+      console.log('[MeScreen] Location sharing disabled, stopping location watcher');
+      stopLocationWatcher();
     }
 
     // Only disconnect on unmount if we're navigating away from the app, not just to another tab
@@ -58,6 +74,7 @@ export default function MeScreen() {
       if (!sharePosition && socketService.isLocationSharingEnabled()) {
         console.log('[MeScreen] Location sharing disabled, stopping updates');
         socketService.stopLocationUpdates();
+        stopLocationWatcher();
       }
     };
   }, [user, sharePosition, getCurrentLocation]);

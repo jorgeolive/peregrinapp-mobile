@@ -41,12 +41,15 @@ class SocketService {
   private socket: Socket | null = null;
   private isConnected: boolean = false;
   private locationUpdateInterval: NodeJS.Timeout | null = null;
+  private intervalActive: boolean = false;
+  private lastIntervalTick: number = 0;
   private reconnectAttempts: number = 0;
   private isAuthenticated: boolean = false;
   private locationSharing: boolean = false;
   private getCurrentPositionFn: (() => Promise<UserLocation | null>) | null = null;
   private authData: AuthData | null = null;
   private connectionError: ConnectionError | null = null;
+  private _lastLocationUpdateTime: number = 0;
 
   // Callbacks
   private onUsersUpdate: ((users: UserData[]) => void) | null = null;
@@ -91,20 +94,29 @@ class SocketService {
       // Check if server is reachable
       console.log(`[SocketService] Checking if server is reachable at ${SERVER_URL}`);
       try {
-        const response = await fetch(`${SERVER_URL}/health`, { 
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-          signal: AbortSignal.timeout(5000) // 5 second timeout
+        // Create a controller for aborting the fetch
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        
+        // Try to reach the server - use a simple HEAD request to the base URL
+        // A 404 still means the server is up but the endpoint doesn't exist
+        const response = await fetch(SERVER_URL, { 
+          method: 'HEAD',  // Just check headers, don't download content
+          signal: controller.signal
         });
         
-        if (!response.ok) {
-          console.log(`[SocketService] Server health check failed: ${response.status}`);
+        // Clear the timeout
+        clearTimeout(timeoutId);
+        
+        // With a HEAD request, even a 404 means the server is running
+        if (response.status >= 500) {
+          console.log(`[SocketService] Server appears to be down: ${response.status}`);
         } else {
-          console.log('[SocketService] Server is reachable');
+          console.log('[SocketService] Server is reachable (status: ' + response.status + ')');
         }
       } catch (error) {
-        console.log(`[SocketService] Server health check error: ${error}`);
-        // Continue anyway, maybe the health endpoint doesn't exist
+        console.log(`[SocketService] Server connection check error: ${error}`);
+        // Continue anyway - we'll try to connect with socket.io regardless
       }
 
       // Connect to the Socket.IO server with authentication token
@@ -141,8 +153,13 @@ class SocketService {
           resolve(false);
         };
 
-        this.socket.once('connect', onConnect);
-        this.socket.once('connect_error', onError);
+        // Only add listeners if socket exists
+        if (this.socket) {
+          this.socket.once('connect', onConnect);
+          this.socket.once('connect_error', onError);
+        } else {
+          resolve(false);
+        }
 
         // Set a timeout
         const timeoutId = setTimeout(() => {
@@ -206,36 +223,50 @@ class SocketService {
         if (this.locationUpdateInterval) {
           clearInterval(this.locationUpdateInterval);
           this.locationUpdateInterval = null;
+          console.log('[SocketService] Cleared existing interval in authenticated handler');
         }
         
         console.log('[SocketService] Setting up location update interval after authentication');
         
+        // Debug timestamp for this auth setup
+        const authSetupTime = new Date().toISOString();
+        console.log(`[SocketService] Auth interval setup at: ${authSetupTime}`);
+        
         // Set up the interval for location updates
-        this.locationUpdateInterval = setInterval(async () => {
-          try {
-            if (!this.getCurrentPositionFn || !this.socket || !this.isConnected) {
-              console.log('[SocketService] Skipping location update - missing dependencies');
-              return;
-            }
-            
-            const position = await this.getCurrentPositionFn();
-            if (position) {
-              console.log(`[SocketService] Sending location update: ${JSON.stringify(position)}`);
-              this.socket.emit('update_location', position);
-            } else {
-              console.log('[SocketService] Could not get current position, skipping update');
-            }
-          } catch (error) {
-            console.error('[SocketService] Error getting or sending location:', error);
-          }
+        this.locationUpdateInterval = setInterval(() => {
+          console.log(`[SocketService] Auth interval tick from setup at ${authSetupTime}`);
+          
+          this._processLocationUpdate().catch(error => {
+            console.error('[SocketService] Error in authenticated interval update:', error);
+          });
         }, 10000); // Update every 10 seconds
+        
+        // Immediate first update after authentication
+        console.log('[SocketService] Triggering immediate update after authentication');
+        this._processLocationUpdate().catch(error => {
+          console.error('[SocketService] Error in immediate authentication update:', error);
+        });
       }
     });
 
     this.socket.on('users_update', (users: UserData[]) => {
-      console.log(`[SocketService] Received users update with ${users.length} users`);
+      // Filter out current user from the received updates
+      console.log(`[SocketService] Raw users_update event received with ${users.length} users`);
+      console.log(`[SocketService] FULL USER LIST:`, JSON.stringify(users));
+      
+      const filteredUsers = users.filter(user => {
+        if (!this.authData) return true; // Keep all users if we don't have auth data
+        return user.id !== this.authData.userId; // Filter out our own user
+      });
+      
+      console.log(`[SocketService] Received users update with ${users.length} users, filtered to ${filteredUsers.length} after removing current user`);
+      console.log(`[SocketService] User data sample:`, JSON.stringify(users[0] || 'no users'));
+      
       if (this.onUsersUpdate) {
-        this.onUsersUpdate(users);
+        console.log(`[SocketService] Calling onUsersUpdate callback with ${filteredUsers.length} users`);
+        this.onUsersUpdate(filteredUsers);
+      } else {
+        console.log(`[SocketService] No onUsersUpdate callback set`);
       }
     });
 
@@ -342,7 +373,7 @@ class SocketService {
    * Start sending location updates to the server
    */
   public startLocationUpdates(getCurrentPosition: () => Promise<UserLocation | null>): void {
-    console.log(`[SocketService] Starting location updates - authenticated: ${this.isAuthenticated}, socket connected: ${!!this.socket}`);
+    console.log(`[SocketService] Starting location updates - authenticated: ${this.isAuthenticated}, socket connected: ${!!this.socket && this.isConnected}`);
     
     // Store the function for later use even if we can't start updates right now
     this.getCurrentPositionFn = getCurrentPosition;
@@ -370,34 +401,130 @@ class SocketService {
     // If we reach here, we're connected and authenticated, so we can start the updates
     console.log('[SocketService] Socket connected and authenticated, starting location updates');
     
-    // Clear any existing interval
+    this._setupLocationUpdateInterval();
+  }
+
+  /**
+   * Set up the interval safely with proper error handling and tracking
+   */
+  private _setupLocationUpdateInterval(): void {
+    // Always properly clear any existing interval first
+    this._clearLocationUpdateInterval();
+    
+    const setupTime = new Date().toISOString();
+    console.log(`[SocketService] Setting up NEW location update interval at: ${setupTime}`);
+    
+    // Store reference to 'this' to avoid context issues in the interval
+    const self = this;
+    self.intervalActive = true;
+    
+    // Use a global object to track the interval for debugging
+    (global as any).socketIntervalDebug = {
+      setupTime,
+      latestTick: 0,
+    };
+    
+    // Set up a new interval with proper context
+    this.locationUpdateInterval = setInterval(() => {
+      const now = Date.now();
+      self.lastIntervalTick = now;
+      (global as any).socketIntervalDebug.latestTick = now;
+      
+      console.log(`[SocketService] Interval tick (${now}) from setup at ${setupTime}`);
+      
+      self._processLocationUpdate().catch(error => {
+        console.error('[SocketService] Error in interval location update:', error);
+      });
+    }, 10000);
+    
+    // Ensure the interval is not garbage collected
+    (global as any).intervalKeepAlive = this.locationUpdateInterval;
+    
+    // Immediate first update to verify everything works
+    console.log('[SocketService] Triggering immediate first update');
+    this._processLocationUpdate().catch(error => {
+      console.error('[SocketService] Error in immediate location update:', error);
+    });
+  }
+
+  /**
+   * Clear the interval safely
+   */
+  private _clearLocationUpdateInterval(): void {
     if (this.locationUpdateInterval) {
       console.log('[SocketService] Clearing existing location update interval');
       clearInterval(this.locationUpdateInterval);
+      this.locationUpdateInterval = null;
+      this.intervalActive = false;
+      this.lastIntervalTick = 0;
     }
+  }
 
-    console.log('[SocketService] Setting up location update interval (every 10 seconds)');
+  /**
+   * Get detailed information about the interval status
+   */
+  public getIntervalStatus(): {
+    active: boolean;
+    lastTick: number;
+    intervalId: string | null;
+    setupTime: string | null;
+  } {
+    return {
+      active: this.intervalActive,
+      lastTick: this.lastIntervalTick,
+      intervalId: this.locationUpdateInterval ? String(this.locationUpdateInterval) : null,
+      setupTime: (global as any).socketIntervalDebug?.setupTime || null
+    };
+  }
+
+  /**
+   * Force restart the location updates interval
+   */
+  public forceRestartInterval(): boolean {
+    console.log('[SocketService] Forcing restart of location update interval');
     
-    // Set up an interval to send location updates
-    this.locationUpdateInterval = setInterval(async () => {
-      try {
-        if (!this.getCurrentPositionFn || !this.socket || !this.isConnected) {
-          console.log('[SocketService] Skipping location update - missing dependencies');
-          return;
-        }
-        
-        console.log('[SocketService] Getting current position...');
-        const position = await this.getCurrentPositionFn();
-        if (position) {
-          console.log(`[SocketService] Sending location update: ${JSON.stringify(position)}`);
-          this.socket.emit('update_location', position);
-        } else {
-          console.log('[SocketService] Could not get current position, skipping update');
-        }
-      } catch (error) {
-        console.error('[SocketService] Error getting or sending location:', error);
+    if (!this.getCurrentPositionFn) {
+      console.log('[SocketService] Cannot restart interval: no position function');
+      return false;
+    }
+    
+    if (!this.isConnected || !this.socket) {
+      console.log('[SocketService] Cannot restart interval: socket not connected');
+      return false;
+    }
+    
+    this._setupLocationUpdateInterval();
+    return true;
+  }
+
+  /**
+   * Extract the location update logic to its own method for reuse and better error handling
+   */
+  private async _processLocationUpdate(): Promise<void> {
+    try {
+      if (!this.getCurrentPositionFn || !this.socket || !this.isConnected) {
+        console.log('[SocketService] Skipping location update - missing dependencies');
+        return;
       }
-    }, 10000); // Update every 10 seconds
+      
+      if (!this.isAuthenticated) {
+        console.log('[SocketService] Skipping location update - not authenticated');
+        return;
+      }
+      
+      console.log('[SocketService] Getting current position...');
+      const position = await this.getCurrentPositionFn();
+      if (position) {
+        console.log(`[SocketService] Sending location update: ${JSON.stringify(position)}`);
+        this.socket.emit('update_location', position);
+        this._lastLocationUpdateTime = Date.now();
+      } else {
+        console.log('[SocketService] Could not get current position, skipping update');
+      }
+    } catch (error) {
+      console.error('[SocketService] Error getting or sending location:', error);
+      throw error; // Re-throw for upper-level handling if needed
+    }
   }
 
   /**
@@ -426,8 +553,39 @@ class SocketService {
    */
   public updateLocation(location: UserLocation): void {
     if (this.socket && this.isConnected && this.locationSharing) {
-      console.log('Manually updating location:', location);
+      console.log(`[SocketService] Manually updating location: ${JSON.stringify(location)}`);
       this.socket.emit('update_location', location);
+      // Track the last update time for manual updates too
+      this._lastLocationUpdateTime = Date.now();
+    } else {
+      console.log(`[SocketService] Cannot update location - connected: ${!!this.socket && this.isConnected}, authenticated: ${this.isAuthenticated}, sharing: ${this.locationSharing}`);
+    }
+  }
+
+  /**
+   * Force a location update cycle to test the system
+   */
+  public async forceLocationUpdate(): Promise<boolean> {
+    console.log('[SocketService] Forcing a location update cycle');
+    if (!this.getCurrentPositionFn) {
+      console.log('[SocketService] No position function available');
+      return false;
+    }
+    
+    try {
+      const position = await this.getCurrentPositionFn();
+      if (position && this.socket && this.isConnected) {
+        console.log(`[SocketService] Forcing location update: ${JSON.stringify(position)}`);
+        this.socket.emit('update_location', position);
+        this._lastLocationUpdateTime = Date.now();
+        return true;
+      } else {
+        console.log('[SocketService] Force update failed - no position or socket issues');
+        return false;
+      }
+    } catch (error) {
+      console.error('[SocketService] Error in forced location update:', error);
+      return false;
     }
   }
 
@@ -518,6 +676,40 @@ class SocketService {
     } catch (error) {
       console.error('[SocketService] Error saving location sharing preference:', error);
     }
+  }
+
+  /**
+   * Get the debugging information about current socket state
+   */
+  public getDebugInfo(): {
+    connected: boolean;
+    authenticated: boolean;
+    locationSharing: boolean;
+    lastError?: string;
+    lastLocationUpdate?: number;
+  } {
+    return {
+      connected: !!this.socket && this.isConnected,
+      authenticated: this.isAuthenticated,
+      locationSharing: this.locationSharing,
+      lastError: this.connectionError?.message,
+      lastLocationUpdate: this._lastLocationUpdateTime
+    };
+  }
+
+  /**
+   * Check if a position function is set
+   */
+  public hasPositionFunction(): boolean {
+    return this.getCurrentPositionFn !== null;
+  }
+
+  /**
+   * Set the position function directly
+   */
+  public setPositionFunction(positionFn: () => Promise<UserLocation | null>): void {
+    console.log('[SocketService] Setting position function directly');
+    this.getCurrentPositionFn = positionFn;
   }
 }
 
