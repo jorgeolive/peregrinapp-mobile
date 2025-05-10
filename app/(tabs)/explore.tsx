@@ -1,3 +1,4 @@
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { StyleSheet, View, Platform, TouchableOpacity, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -7,7 +8,6 @@ import {
   Camera,
   UserTrackingMode
 } from "@maplibre/maplibre-react-native";
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { AlbergueModal } from '../components/AlbergueModal';
 import { AlbergueFeature } from '../types/map';
 import { fetchAlbergueDetails } from '../services/albergueService';
@@ -22,6 +22,8 @@ import socketService, { UserData } from '../services/socketService';
 import { useAuth } from '../context/AuthContext';
 import { getUserDetails } from '../services/userService';
 import { UserDetailsModal } from '../components/UserDetailsModal';
+import chatService from '../services/chatService';
+import { useRouter } from 'expo-router';
 
 // Define the user's hardcoded position
 const HARDCODED_POSITION = {
@@ -39,6 +41,8 @@ export default function ExploreScreen() {
       console.log(`ExploreScreen render #${renderCount.current}`);
     }
   });
+  
+  const router = useRouter();
   
   const { user } = useAuth();
   const [selectedAlbergue, setSelectedAlbergue] = useState<AlbergueFeature | null>(null);
@@ -583,6 +587,16 @@ export default function ExploreScreen() {
         error={userDetailsError || undefined}
         onClose={handleCloseUserModal}
         onSendDM={handleSendDM}
+        onStartChat={(userId, name) => {
+          console.log(`[ExploreScreen] Starting chat with user ${name} (${userId})`);
+          handleCloseUserModal();
+          
+          // Navigate to the conversation screen
+          router.push({
+            pathname: "/conversation/[id]",
+            params: { id: userId, name }
+          });
+        }}
       />
     </SafeAreaView>
   );

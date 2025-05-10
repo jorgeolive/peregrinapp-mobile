@@ -711,6 +711,48 @@ class SocketService {
     console.log('[SocketService] Setting position function directly');
     this.getCurrentPositionFn = positionFn;
   }
+
+  /**
+   * Send a custom event through the socket connection
+   * This allows other services to use the socket without creating their own connection
+   */
+  public emitEvent(eventName: string, data: any): boolean {
+    if (!this.socket || !this.isConnected) {
+      console.error(`[SocketService] Cannot emit event ${eventName}: socket not connected`);
+      return false;
+    }
+
+    try {
+      console.log(`[SocketService] Emitting custom event: ${eventName}`, data);
+      this.socket.emit(eventName, data);
+      return true;
+    } catch (error) {
+      console.error(`[SocketService] Error emitting event ${eventName}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Add a listener for a custom event
+   * This allows other services to listen for events without managing their own socket
+   */
+  public addEventListener(eventName: string, callback: (data: any) => void): () => void {
+    if (!this.socket) {
+      console.error(`[SocketService] Cannot add listener for ${eventName}: socket not initialized`);
+      return () => {}; // Return empty cleanup function
+    }
+
+    console.log(`[SocketService] Adding listener for event: ${eventName}`);
+    this.socket.on(eventName, callback);
+    
+    // Return a function to remove the listener
+    return () => {
+      if (this.socket) {
+        console.log(`[SocketService] Removing listener for event: ${eventName}`);
+        this.socket.off(eventName, callback);
+      }
+    };
+  }
 }
 
 // Create and export a singleton instance

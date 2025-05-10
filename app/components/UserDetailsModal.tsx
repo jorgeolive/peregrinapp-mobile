@@ -11,17 +11,20 @@ interface UserDetailsProps {
   error?: string;
   onClose: () => void;
   onSendDM: () => void;
+  onStartChat?: (userId: string, name: string) => void;
 }
 
 export const UserDetailsModal: React.FC<UserDetailsProps> = ({
   visible,
+  userId,
   username,
   userBio,
   enableDms = false,
   loading,
   error,
   onClose,
-  onSendDM
+  onSendDM,
+  onStartChat
 }) => {
   return (
     <Modal
@@ -50,6 +53,15 @@ export const UserDetailsModal: React.FC<UserDetailsProps> = ({
               {enableDms && (
                 <TouchableOpacity style={styles.button} onPress={onSendDM}>
                   <Text style={styles.buttonText}>Send Message</Text>
+                </TouchableOpacity>
+              )}
+              
+              {enableDms && onStartChat && userId && username && (
+                <TouchableOpacity 
+                  style={[styles.button, { backgroundColor: '#4CAF50' }]} 
+                  onPress={() => onStartChat(userId, username)}
+                >
+                  <Text style={styles.buttonText}>Chat</Text>
                 </TouchableOpacity>
               )}
               

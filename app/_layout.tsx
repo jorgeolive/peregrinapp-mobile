@@ -38,6 +38,7 @@ export default function RootLayout() {
           <Stack.Screen name="+not-found" />
           <Stack.Screen name="index" />
           <Stack.Screen name="auth" />
+          <Stack.Screen name="conversation" options={{ headerShown: true }} />
         </Stack>
         <StatusBar style="auto" />
         <DebugOverlay />
