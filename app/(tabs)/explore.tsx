@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { StyleSheet, View, Platform, TouchableOpacity, Text } from 'react-native';
+import { StyleSheet, View, Platform, TouchableOpacity, Text, AppState } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   MapView,
@@ -23,7 +23,7 @@ import { useAuth } from '../context/AuthContext';
 import { getUserDetails } from '../services/userService';
 import { UserDetailsModal } from '../components/UserDetailsModal';
 import chatService from '../services/chatService';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 
 // Define the user's hardcoded position
 const HARDCODED_POSITION = {
@@ -88,8 +88,6 @@ export default function ExploreScreen() {
   
   // Track if location updates have been initialized
   const locationUpdatesInitialized = useRef(false);
-  // Track if test user has been added
-  const testUserAdded = useRef(false);
   // Track if location watcher has been started
   const locationWatcherStarted = useRef(false);
   
@@ -98,48 +96,11 @@ export default function ExploreScreen() {
     console.log('Socket initialization useEffect running, user:', user?.id);
     
     if (user) {
-      // Initialize socket connection
-      console.log('Attempting to initialize socket connection');
-      socketService.init().then(() => {
-        setIsConnectedToSocket(true);
-        console.log('Socket connected in explore screen');
-      }).catch(error => {
-        console.error('Socket connection error:', error);
-        setIsConnectedToSocket(false);
-      });
-      
-      // Set up callback for user updates from socket
+      // Set up callback for user updates from socket first, before attempting to connect
+      // This ensures the callback is registered even if the socket reconnects later
       console.log('Setting up socket.setOnUsersUpdate callback');
       socketService.setOnUsersUpdate((users: UserData[]) => {
-        console.log('Socket users_update event received with users:', users.length);
-        
-        // Debug raw user data
-        users.forEach(u => {
-          console.log(`Raw user data - id: ${u.id}, name: ${u.name}, location:`, 
-            u.location ? `long: ${u.location.longitude} (${typeof u.location.longitude}), lat: ${u.location.latitude} (${typeof u.location.latitude})` : 'null');
-            
-          // Create a test user at the exact same coordinates as the socket user
-          if (u.location) {
-            const testUserId = `test-clone-${u.id}`;
-            console.log(`Creating test clone user ${testUserId} at exact same coordinates`);
-            
-            const testClone = {
-              id: testUserId,
-              name: `Clone of ${u.name}`,
-              longitude: u.location.longitude,
-              latitude: u.location.latitude,
-              color: '255, 0, 0' // Red color
-            };
-            
-            // Update otherUsers with this clone
-            setOtherUsers(prev => {
-              if (!prev.find(pu => pu.id === testUserId)) {
-                return [...prev, testClone];
-              }
-              return prev;
-            });
-          }
-        });
+        //console.log('Socket users_update event received with users:', users.length);
         
         // Transform users from socket to the format needed by MapLayers with proper coordinate handling
         const transformedUsers = users
@@ -162,29 +123,23 @@ export default function ExploreScreen() {
               color: '255, 87, 34' // Use a default color for all users
             };
             
-            console.log(`Transformed user ${otherUser.name}: longitude=${otherUser.longitude}, latitude=${otherUser.latitude}`);
             return otherUser;
           });
         
-        console.log('Setting otherUsers with:', JSON.stringify(transformedUsers));
-        
-        // Only update if we have users, prevent setting an empty array
+        // Only update if we have users
         if (transformedUsers.length > 0) {
-          setOtherUsers(prev => {
-            // Combine transformed users with existing test user
-            const existingTestUser = prev.find(u => u.id === 'test-user-static');
-            const combinedUsers = [...transformedUsers];
-            
-            if (existingTestUser) {
-              combinedUsers.push(existingTestUser);
-            }
-            
-            console.log('Combined users array:', JSON.stringify(combinedUsers));
-            return combinedUsers;
-          });
-        } else {
-          console.log('Not updating otherUsers because transformedUsers is empty');
+          setOtherUsers(transformedUsers);
         }
+      });
+      
+      // Initialize socket connection after callback is set up
+      console.log('Attempting to initialize socket connection');
+      socketService.init().then(() => {
+        setIsConnectedToSocket(true);
+        console.log('Socket connected in explore screen');
+      }).catch(error => {
+        console.error('Socket connection error:', error);
+        setIsConnectedToSocket(false);
       });
     }
     
@@ -199,7 +154,7 @@ export default function ExploreScreen() {
     // Only start location updates if user is logged in and socket is connected
     // and we haven't already initialized updates
     if (user && isConnectedToSocket && !locationUpdatesInitialized.current) {
-      console.log('[ExploreScreen] Setting up location updates for the map');
+      // console.log('[ExploreScreen] Setting up location updates for the map');
       locationUpdatesInitialized.current = true;
       
       // Make sure the location function is available
@@ -208,14 +163,14 @@ export default function ExploreScreen() {
       // Check if location sharing is already enabled
       socketService.getLocationSharingPreference().then(sharingEnabled => {
         if (sharingEnabled) {
-          console.log('[ExploreScreen] Location sharing is enabled, starting updates');
+          // console.log('[ExploreScreen] Location sharing is enabled, starting updates');
           socketService.startLocationUpdates(getCurrentLocation);
         } else {
-          console.log('[ExploreScreen] Location sharing is disabled, not starting updates');
+          // console.log('[ExploreScreen] Location sharing is disabled, not starting updates');
         }
       });
     }
-  }, [user, isConnectedToSocket]); // Removed getCurrentLocation from dependencies
+  }, [user, isConnectedToSocket]); 
   
   // Function to generate a consistent color for a user based on their ID
   const getRandomColor = (userId: string) => {
@@ -352,15 +307,15 @@ export default function ExploreScreen() {
   // Add useEffect to start location watcher on mount
   useEffect(() => {
     if (user && !locationWatcherStarted.current) {
-      console.log('[ExploreScreen] Starting location watcher on component mount');
+      // console.log('[ExploreScreen] Starting location watcher on component mount');
       startLocationWatcher().then(success => {
         locationWatcherStarted.current = success;
-        console.log(`[ExploreScreen] Location watcher started: ${success}`);
+        // console.log(`[ExploreScreen] Location watcher started: ${success}`);
       });
     }
     
     return () => {
-      console.log('[ExploreScreen] Cleaning up');
+      //console.log('[ExploreScreen] Cleaning up');
     };
   }, [user, startLocationWatcher]);
   
@@ -393,7 +348,7 @@ export default function ExploreScreen() {
         followTimeoutRef.current = null;
       }, 2000);
     }
-  }, []); // Remove getCurrentLocation dependency
+  }, []); 
 
   // Toggle between custom and standard user marker
   const toggleUserMarker = () => {
@@ -414,70 +369,63 @@ export default function ExploreScreen() {
     };
   }, []);
 
-  // Debug otherUsers state - only log when there's actually a change
-  useEffect(() => {
-    if (renderCount.current > 2) { // Skip initial renders
-      console.log('otherUsers state updated:', JSON.stringify(showOtherUsers ? otherUsers : []));
-    }
-  }, [otherUsers.length]); // Only react to length changes, not every detail
-
-  // Create a static test user that will always be visible
-  useEffect(() => {
-    if (userLocation && !testUserAdded.current) {
-      console.log('Adding static test user');
-      testUserAdded.current = true;
+  // Add a helper effect to ensure the socket reconnects whenever the screen gains focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log('Socket reconnection useFocusEffect running, user:', user?.id);
       
-      // Log test user details in great detail
-      const testLongitude = userLocation.longitude + 0.0008;
-      const testLatitude = userLocation.latitude + 0.0008;
+      // Only try to reconnect if we have a user and socket is definitely disconnected
+      // This prevents reconnection attempts when we're already connected
+      if (user && socketService.getDebugInfo().connected === false) {
+        console.log('Socket is definitely disconnected, attempting to reconnect');
+        socketService.ensureConnection().then((success) => {
+          setIsConnectedToSocket(success);
+          console.log('Socket reconnection attempt result:', success);
+        }).catch(error => {
+          console.error('Socket reconnection error:', error);
+          setIsConnectedToSocket(false);
+        });
+      }
       
-      console.log(`Creating test user at: long=${testLongitude} (${typeof testLongitude}), lat=${testLatitude} (${typeof testLatitude})`);
-      
-      // Define test user with proper type matching other transformed users
-      const testUser: {
-        id: string;
-        name: string;
-        longitude: number;
-        latitude: number;
-        color: string;
-      } = {
-        id: 'test-user-static',
-        name: 'Static Test User',
-        longitude: testLongitude,
-        latitude: testLatitude,
-        color: '0, 0, 255' // Blue color
+      return () => {
+        // No cleanup needed
       };
-      
-      // Add test user without removing any existing users from socket
-      setOtherUsers(current => {
-        // Only add if not already present
-        if (!current.find(u => u.id === testUser.id)) {
-          return [...current, testUser];
-        }
-        return current;
-      });
-    }
-  }, []); // Empty dependency array to run only once
-  
-  // Check distance between current user and other users - optimize to prevent excessive logging
-  const calculateDistancesRef = useRef(0);
+    }, [user])
+  );
+
+  // Add a helper effect to handle app background/foreground transitions
   useEffect(() => {
-    // Only calculate distances occasionally to avoid performance issues
-    if (userLocation && otherUsers.length > 0 && calculateDistancesRef.current % 10 === 0) {
-      console.log('Calculating distances to other users');
+    let isHandlingAppState = false;
+    
+    const handleAppStateChange = async (nextAppState: string) => {
+      // Prevent multiple simultaneous handling of app state changes
+      if (isHandlingAppState) return;
       
-      otherUsers.forEach(other => {
-        // Simple approximate distance calculation
-        const latDiff = Math.abs(userLocation.latitude - other.latitude);
-        const lonDiff = Math.abs(userLocation.longitude - other.longitude);
+      try {
+        isHandlingAppState = true;
         
-        console.log(`User ${other.name} coordinates: ${other.longitude}, ${other.latitude}`);
-        console.log(`Distance from current user (approx degrees): lat: ${latDiff.toFixed(6)}, lon: ${lonDiff.toFixed(6)}`);
-        console.log(`1 degree latitude ≈ 111 km, so approx distance: ${(latDiff * 111).toFixed(2)} km`);
-      });
-    }
-    calculateDistancesRef.current += 1;
-  }, [userLocation, otherUsers.length]); // Only react to significant changes
+        if (nextAppState === 'active' && user) {
+          console.log('App came to foreground, checking socket connection');
+          
+          // Only attempt reconnection if definitely disconnected
+          if (socketService.getDebugInfo().connected === false) {
+            console.log('Socket definitely disconnected, reconnecting');
+            const success = await socketService.ensureConnection();
+            setIsConnectedToSocket(success);
+            console.log('Socket reconnection attempt result:', success);
+          }
+        }
+      } finally {
+        isHandlingAppState = false;
+      }
+    };
+    
+    const appStateListener = AppState.addEventListener('change', handleAppStateChange);
+    
+    return () => {
+      appStateListener.remove();
+    };
+  }, [user]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -501,7 +449,7 @@ export default function ExploreScreen() {
           // Track zoom level changes when the user interacts with the map
           if (e.properties.zoomLevel) {
             setCurrentZoomLevel(e.properties.zoomLevel);
-            console.log(`[ExploreScreen] Map zoom level changed to: ${e.properties.zoomLevel}`);
+            // console.log(`[ExploreScreen] Map zoom level changed to: ${e.properties.zoomLevel}`);
           }
         }}
       >

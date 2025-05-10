@@ -60,7 +60,7 @@ export const useLocation = () => {
           timeInterval: 3000,  // Or at least every 3 seconds
         },
         (location) => {
-          console.log('[useLocation] Location update from watcher');
+          //console.log('[useLocation] Location update from watcher');
           const newLocation = {
             longitude: location.coords.longitude,
             latitude: location.coords.latitude

@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { StyleSheet, View, Text, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
-import { Link } from 'expo-router';
+import { Link, useFocusEffect } from 'expo-router';
 import chatService from '../services/chatService';
+import { getUserDetails } from '../services/userService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface Conversation {
   userId: string;
@@ -13,113 +15,231 @@ interface Conversation {
   unreadCount: number;
 }
 
+// Key for AsyncStorage conversations
+const CONVERSATIONS_KEY = 'chat_conversations';
+
 export default function ChatScreen() {
   const { user } = useAuth();
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true); // Only for first load
+  const [isUpdating, setIsUpdating] = useState(false);    // For background updates
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const firstLoadCompletedRef = useRef(false);
+  const fetchedUserNamesRef = useRef<Set<string>>(new Set()); // Track already fetched usernames
+  const isPollingPausedRef = useRef(false); // Track if polling should be temporarily paused
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Function to fetch user details and update conversation name
+  // With debouncing and tracking of already fetched names
+  const fetchUserName = useCallback(async (userId: string) => {
+    // Skip if we've already fetched this user's name
+    if (fetchedUserNamesRef.current.has(userId)) {
+      return;
+    }
+    
+    // Mark as fetched immediately to prevent duplicate requests
+    fetchedUserNamesRef.current.add(userId);
+    
+    try {
+      const response = await getUserDetails(userId);
+      if (response.success && response.user && response.user.name) {
+        // Need to pause polling during this update to prevent cycles
+        isPollingPausedRef.current = true;
+        
+        // Update the conversation with the real name
+        setConversations(prevConversations => {
+          // Create a new array with the updated name
+          const updatedConversations = prevConversations.map(conv => {
+            if (conv.userId === userId && conv.name !== response.user!.name) {
+              return { ...conv, name: response.user!.name };
+            }
+            return conv;
+          });
+          
+          // Resume polling after a short delay
+          if (updateTimeoutRef.current) {
+            clearTimeout(updateTimeoutRef.current);
+          }
+          
+          updateTimeoutRef.current = setTimeout(() => {
+            isPollingPausedRef.current = false;
+            updateTimeoutRef.current = null;
+          }, 500);
+          
+          return updatedConversations;
+        });
+      }
+    } catch (error) {
+      console.error(`[ChatScreen] Error fetching user details for ${userId}:`, error);
+      // Remove from fetched set if there was an error, so we can retry later
+      fetchedUserNamesRef.current.delete(userId);
+    }
+  }, []);
+
+  // Function to directly load conversations from AsyncStorage
+  const loadConversationsFromStorage = useCallback(async (loadType: 'initial' | 'background' = 'background') => {
+    // Skip if polling is paused to prevent update cycles
+    if (loadType === 'background' && isPollingPausedRef.current) {
+      return;
+    }
+    
+    try {
+      // Set loading state based on type
+      if (loadType === 'initial') setIsInitialLoading(true);
+      else setIsUpdating(true);
+      
+      console.log(`[ChatScreen] Loading conversations (${loadType})`);
+      
+      const conversationsJSON = await AsyncStorage.getItem(CONVERSATIONS_KEY);
+      
+      if (!conversationsJSON) {
+        console.log('[ChatScreen] No conversations found in AsyncStorage');
+        if (conversations.length !== 0) {
+          setConversations([]);
+        }
+        
+        // Clear loading states
+        if (loadType === 'initial') {
+          setIsInitialLoading(false);
+          firstLoadCompletedRef.current = true;
+        } else {
+          setIsUpdating(false);
+        }
+        return;
+      }
+      
+      try {
+        const storedConversations: Record<string, Conversation> = JSON.parse(conversationsJSON);
+        
+        // Convert to array and sort by timestamp (most recent first)
+        const conversationArray = Object.values(storedConversations).sort((a, b) => 
+          (b.timestamp || 0) - (a.timestamp || 0)
+        );
+        
+        console.log(`[ChatScreen] Loaded ${conversationArray.length} conversations from AsyncStorage`);
+        
+        // Check if conversations have changed to prevent unnecessary re-renders
+        // We need to compare deeper than just stringification - only care about specific fields
+        let hasChanges = conversations.length !== conversationArray.length;
+        
+        if (!hasChanges) {
+          // Check each conversation for changes in important fields
+          for (let i = 0; i < conversationArray.length; i++) {
+            const newConv = conversationArray[i];
+            const oldConv = conversations[i];
+            
+            if (newConv.userId !== oldConv.userId ||
+                newConv.lastMessage !== oldConv.lastMessage ||
+                newConv.timestamp !== oldConv.timestamp ||
+                newConv.unreadCount !== oldConv.unreadCount) {
+              hasChanges = true;
+              break;
+            }
+          }
+        }
+        
+        if (hasChanges) {
+          console.log('[ChatScreen] Conversations changed, updating UI');
+          setConversations(conversationArray);
+          
+          // Only fetch user names for new generic names
+          for (const conversation of conversationArray) {
+            // Only fetch if name is the generic 'User {id}' format AND we haven't fetched it before
+            if (conversation.name.startsWith('User ') && !fetchedUserNamesRef.current.has(conversation.userId)) {
+              fetchUserName(conversation.userId);
+            }
+          }
+        } else {
+          console.log('[ChatScreen] Conversations unchanged, skipping update');
+        }
+      } catch (parseError) {
+        console.error('[ChatScreen] Error parsing conversations JSON:', parseError);
+        // Reset to empty array if corrupted
+        if (conversations.length !== 0) {
+          setConversations([]);
+        }
+      }
+    } catch (error) {
+      console.error('[ChatScreen] Error loading conversations from AsyncStorage:', error);
+    } finally {
+      // Always clear loading states
+      if (loadType === 'initial') {
+        setIsInitialLoading(false);
+        firstLoadCompletedRef.current = true;
+      } else {
+        setIsUpdating(false);
+      }
+    }
+  }, [conversations, fetchUserName]);
+
+  // Set up polling effect when screen is in focus
+  useFocusEffect(
+    React.useCallback(() => {
+      console.log('[ChatScreen] Screen focused, starting polling');
+      
+      // Load conversations immediately when focused
+      if (firstLoadCompletedRef.current) {
+        // This isn't the first load, use background loading
+        loadConversationsFromStorage('background');
+      }
+      
+      // Set up a polling interval
+      pollingIntervalRef.current = setInterval(() => {
+        loadConversationsFromStorage('background');
+      }, 2000); // Poll every 2 seconds
+      
+      // Check connection status
+      const checkConnection = async () => {
+        const connected = chatService.isSocketConnected();
+        setIsConnected(connected);
+      };
+      
+      checkConnection();
+      
+      // Clean up interval when screen loses focus
+      return () => {
+        console.log('[ChatScreen] Screen unfocused, stopping polling');
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+      };
+    }, [user, loadConversationsFromStorage])
+  );
 
   useEffect(() => {
     // Initialize chat service when screen loads
     const initializeChat = async () => {
-      setIsLoading(true);
       if (!user) {
-        setIsLoading(false);
+        setIsInitialLoading(false);
+        firstLoadCompletedRef.current = true;
         return;
       }
 
       const connected = await chatService.init();
       setIsConnected(connected);
 
-      // Fetch real conversations from API
-      try {
-        const result = await chatService.getConversations();
-        if (result.success && result.conversations) {
-          console.log('[ChatScreen] Fetched conversations:', result.conversations);
-          setConversations(result.conversations);
-        } else {
-          console.error('[ChatScreen] Failed to fetch conversations:', result.error);
-          // Fall back to dummy data if API fails
-          setConversations([
-            {
-              userId: '1',
-              name: 'Juan Peregrino',
-              lastMessage: 'Hola, ¿dónde estás en el Camino?',
-              timestamp: Date.now() - 1000 * 60 * 5, // 5 minutes ago
-              unreadCount: 2
-            },
-            {
-              userId: '2',
-              name: 'Maria Caminante',
-              lastMessage: 'El albergue estaba genial, gracias!',
-              timestamp: Date.now() - 1000 * 60 * 60 * 2, // 2 hours ago
-              unreadCount: 0
-            }
-          ]);
-        }
-      } catch (error) {
-        console.error('[ChatScreen] Error fetching conversations:', error);
-        // Use dummy data as fallback
-        setConversations([
-          {
-            userId: '1',
-            name: 'Juan Peregrino',
-            lastMessage: 'Hola, ¿dónde estás en el Camino?',
-            timestamp: Date.now() - 1000 * 60 * 5,
-            unreadCount: 2
-          },
-          {
-            userId: '2',
-            name: 'Maria Caminante',
-            lastMessage: 'El albergue estaba genial, gracias!',
-            timestamp: Date.now() - 1000 * 60 * 60 * 2,
-            unreadCount: 0
-          }
-        ]);
-      }
-
-      setIsLoading(false);
+      // Load conversations from AsyncStorage - use initial loading type
+      await loadConversationsFromStorage('initial');
     };
-
-    // Set up event listeners for new messages
-    chatService.setOnNewMessage((message) => {
-      // Update conversations when new message arrives
-      setConversations(prev => {
-        const existingIndex = prev.findIndex(c => c.userId === message.senderId);
-        if (existingIndex >= 0) {
-          // Update existing conversation
-          const updated = [...prev];
-          updated[existingIndex] = {
-            ...updated[existingIndex],
-            lastMessage: message.message,
-            timestamp: message.timestamp,
-            unreadCount: updated[existingIndex].unreadCount + 1
-          };
-          return updated;
-        } else {
-          // TODO: Fetch user info from API using message.senderId
-          // For now, create a placeholder
-          return [{
-            userId: message.senderId,
-            name: `User ${message.senderId}`,
-            lastMessage: message.message,
-            timestamp: message.timestamp,
-            unreadCount: 1
-          }, ...prev];
-        }
-      });
-    });
-
-    // Set connection status listener
-    chatService.setOnConnectionChange(setIsConnected);
 
     initializeChat();
 
     return () => {
-      // No need to disconnect on unmount
-      // The socket should persist between tabs
+      // Clean up polling interval
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      
+      // Clear any pending timeouts
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+        updateTimeoutRef.current = null;
+      }
     };
-  }, [user]);
+  }, [user, loadConversationsFromStorage]);
 
   const formatTime = (timestamp?: number) => {
     if (!timestamp) return '';
@@ -137,7 +257,7 @@ export default function ChatScreen() {
     }
   };
 
-  if (isLoading) {
+  if (isInitialLoading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#1976D2" />
@@ -168,6 +288,12 @@ export default function ChatScreen() {
           </View>
         )}
       </View>
+
+      {isUpdating && (
+        <View style={styles.updateIndicator}>
+          <ActivityIndicator size="small" color="#1976D2" style={styles.updateSpinner} />
+        </View>
+      )}
 
       {conversations.length === 0 ? (
         <View style={styles.emptyContainer}>
@@ -342,7 +468,7 @@ const styles = StyleSheet.create({
   },
   conversationTime: {
     fontSize: 12,
-    color: '#888',
+    color: '#999',
   },
   conversationFooter: {
     flexDirection: 'row',
@@ -350,23 +476,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   conversationMessage: {
+    flex: 1,
     fontSize: 14,
     color: '#666',
-    flex: 1,
-    paddingRight: 8,
   },
   unreadBadge: {
-    backgroundColor: '#FF5722',
+    backgroundColor: '#1976D2',
     borderRadius: 12,
-    height: 22,
-    minWidth: 22,
+    minWidth: 24,
+    height: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 6,
+    marginLeft: 8,
+    paddingHorizontal: 8,
   },
   unreadCount: {
-    color: '#fff',
     fontSize: 12,
     fontWeight: 'bold',
+    color: '#fff',
+  },
+  updateIndicator: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 20,
+    height: 20,
+    zIndex: 10,
+    opacity: 0.7,
+  },
+  updateSpinner: {
+    transform: [{ scale: 0.6 }],
   },
 }); 

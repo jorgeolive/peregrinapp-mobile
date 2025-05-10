@@ -50,12 +50,6 @@ export const UserDetailsModal: React.FC<UserDetailsProps> = ({
               <Text style={styles.userName}>{username || 'Unknown'}</Text>
               <Text style={styles.userBio}>{userBio || 'No bio available'}</Text>
               
-              {enableDms && (
-                <TouchableOpacity style={styles.button} onPress={onSendDM}>
-                  <Text style={styles.buttonText}>Send Message</Text>
-                </TouchableOpacity>
-              )}
-              
               {enableDms && onStartChat && userId && username && (
                 <TouchableOpacity 
                   style={[styles.button, { backgroundColor: '#4CAF50' }]} 

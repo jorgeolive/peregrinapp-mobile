@@ -21,7 +21,7 @@ interface MapLayersProps {
 
 // Memoized static layer components
 const AlberguesLayer = memo(({ onAlberguePress }: { onAlberguePress: (event: any) => void }) => {
-  console.log('[MapLayers] Rendering AlberguesLayer');
+  // console.log('[MapLayers] Rendering AlberguesLayer');
   return (
     <ShapeSource
       id="albergues"
@@ -56,7 +56,7 @@ const AlberguesLayer = memo(({ onAlberguePress }: { onAlberguePress: (event: any
 });
 
 const CaminoNorteLayer = memo(({ onStagePress }: { onStagePress: (event: any) => void }) => {
-  console.log('[MapLayers] Rendering CaminoNorteLayer');
+  // console.log('[MapLayers] Rendering CaminoNorteLayer');
   return (
     <ShapeSource
       id="camino-norte"
@@ -141,7 +141,7 @@ const OtherUsersLayer = memo(({
   otherUsers: OtherUser[]; 
   onUserPress?: (userId: string) => void;
 }) => {
-  console.log(`[MapLayers] Rendering OtherUsersLayer with ${otherUsers.length} users`);
+  // console.log(`[MapLayers] Rendering OtherUsersLayer with ${otherUsers.length} users`);
   
   return (
     <>
@@ -161,7 +161,7 @@ const OtherUsersLayer = memo(({
             }
           }}
           onPress={() => {
-            console.log(`[MapLayers] User marker clicked: id=${user.id}, name=${user.name}, coords=[${user.longitude}, ${user.latitude}]`);
+            console.log(`[MapLayers] User marker clicked: id=${user.id}, name=${user.name}`);
             if (onUserPress) onUserPress(user.id);
           }}
         >
@@ -214,7 +214,7 @@ const UserLocationMarker = memo(({
   userLocation?: { longitude: number; latitude: number } | null;
   showCustomUserMarker: boolean;
 }) => {
-  console.log(`[MapLayers] Rendering UserLocationMarker at ${userLocation?.longitude}, ${userLocation?.latitude}`);
+  // console.log(`[MapLayers] Rendering UserLocationMarker at ${userLocation?.longitude}, ${userLocation?.latitude}`);
   
   if (!showCustomUserMarker || !userLocation) return null;
   
@@ -280,7 +280,7 @@ export const MapLayers: React.FC<MapLayersProps> = memo(({
   showCustomUserMarker = false,
   otherUsers = []
 }) => {
-  console.log('[MapLayers] Rendering main MapLayers component');
+  // console.log('[MapLayers] Rendering main MapLayers component');
   
   // These static components will only re-render if their props change
   const staticLayers = useMemo(() => (

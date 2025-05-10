@@ -147,6 +147,20 @@ export const getUserDetails = async (userId: string): Promise<{
 }> => {
   try {
     console.log(`[UserService] Getting user details for userId: ${userId}`);
+    
+    // Check if user data is cached in AsyncStorage first
+    try {
+      const cachedUserData = await AsyncStorage.getItem(`user_${userId}`);
+      if (cachedUserData) {
+        const userData = JSON.parse(cachedUserData);
+        console.log(`[UserService] Found cached user data for ${userId}`);
+        return { success: true, user: userData };
+      }
+    } catch (cacheError) {
+      console.log(`[UserService] No cached data for ${userId} or error reading cache`);
+    }
+    
+    // If not cached, fetch from server
     const headers = await getAuthHeader();
     console.log(`[UserService] Request headers:`, JSON.stringify(headers));
     
@@ -164,6 +178,15 @@ export const getUserDetails = async (userId: string): Promise<{
 
     if (response.status === 200) {
       console.log(`[UserService] Successfully retrieved user details`);
+      
+      // Cache the user data in AsyncStorage for future use
+      try {
+        await AsyncStorage.setItem(`user_${userId}`, JSON.stringify(responseData));
+        console.log(`[UserService] Cached user data for ${userId}`);
+      } catch (cacheError) {
+        console.error(`[UserService] Failed to cache user data:`, cacheError);
+      }
+      
       return { success: true, user: responseData };
     } else {
       console.error(`[UserService] Failed to get user details. Status: ${response.status}, Message: ${responseData.message || 'No message'}`);

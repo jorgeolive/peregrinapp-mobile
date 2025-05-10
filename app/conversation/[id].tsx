@@ -12,195 +12,307 @@ import {
   SafeAreaView,
   RefreshControl
 } from 'react-native';
-import { useLocalSearchParams, Stack, router } from 'expo-router';
+import { useLocalSearchParams, Stack, router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import chatService, { ChatMessage } from '../services/chatService';
 import { useAuth } from '../context/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Keys for AsyncStorage
+const MESSAGES_KEY = 'chat_messages';
 
 export default function ConversationScreen() {
   const { user } = useAuth();
   const { id: recipientId, name: recipientName } = useLocalSearchParams<{ id: string, name: string }>();
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true); // Only for first load
+  const [isRefreshing, setIsRefreshing] = useState(false); // For pull-to-refresh
+  const [isUpdating, setIsUpdating] = useState(false); // For background updates
   const [isInitialized, setIsInitialized] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const firstLoadCompletedRef = useRef(false);
 
-  // Function to load message history from AsyncStorage
-  const loadMessageHistory = async () => {
+  // Function to load message history directly from AsyncStorage
+  const loadMessagesFromStorage = useCallback(async (loadType: 'initial' | 'refresh' | 'background' = 'background') => {
     try {
-      if (!recipientId) return;
-      
-      console.log(`[ConversationScreen] Loading message history for conversation with ${recipientId}`);
-      const result = await chatService.getMessageHistory(recipientId);
-      
-      if (result.success && result.messages) {
-        console.log(`[ConversationScreen] Loaded ${result.messages.length} messages from history`);
-        setMessages(result.messages);
-      } else {
-        console.error('[ConversationScreen] Failed to load message history:', result.error);
+      if (!recipientId || !user?.id) {
+        // Clear loading states if we can't proceed
+        if (loadType === 'initial') {
+          setIsInitialLoading(false);
+          firstLoadCompletedRef.current = true;
+        }
+        else if (loadType === 'refresh') setIsRefreshing(false);
+        else if (loadType === 'background') setIsUpdating(false);
+        return;
       }
+      
+      // Only set loading indicators based on the type of load
+      if (loadType === 'initial') setIsInitialLoading(true);
+      else if (loadType === 'refresh') setIsRefreshing(true);
+      else if (loadType === 'background') setIsUpdating(true);
+      
+      console.log(`[ConversationScreen] Loading messages from AsyncStorage (${loadType}) for conversation with ${recipientId}`);
+      
+      // Get the conversation ID using the same logic as in chatService
+      const currentId = String(user.id);
+      const otherUserId = String(recipientId);
+      
+      // Sort IDs to create consistent conversation ID
+      const sortedIds = [currentId, otherUserId].sort();
+      const conversationId = `${sortedIds[0]}_${sortedIds[1]}`;
+      
+      console.log(`[ConversationScreen] Using conversation ID: ${conversationId}`);
+      
+      // Get messages from AsyncStorage
+      const messagesJSON = await AsyncStorage.getItem(MESSAGES_KEY);
+      
+      if (!messagesJSON) {
+        console.log('[ConversationScreen] No messages found in AsyncStorage');
+        
+        // Empty messages array but don't reload if already empty
+        if (messages.length !== 0) {
+          setMessages([]);
+        }
+        
+        // Clear loading states
+        if (loadType === 'initial') {
+          setIsInitialLoading(false);
+          firstLoadCompletedRef.current = true;
+        }
+        else if (loadType === 'refresh') setIsRefreshing(false);
+        else if (loadType === 'background') setIsUpdating(false);
+        
+        // Mark conversation as read even if empty
+        await chatService.markConversationAsRead(otherUserId);
+        
+        return;
+      }
+      
+      try {
+        const storedMessages: Record<string, ChatMessage[]> = JSON.parse(messagesJSON);
+        
+        // Get messages for this conversation
+        const conversationMessages = storedMessages[conversationId] || [];
+        
+        console.log(`[ConversationScreen] Found ${conversationMessages.length} messages in AsyncStorage for conversation ${conversationId}`);
+        
+        // If there are no messages, clear the messages array if not already empty
+        if (conversationMessages.length === 0) {
+          if (messages.length !== 0) {
+            setMessages([]);
+          }
+          
+          // Clear loading states immediately for empty conversations
+          if (loadType === 'initial') {
+            setIsInitialLoading(false);
+            firstLoadCompletedRef.current = true; 
+          }
+          else if (loadType === 'refresh') setIsRefreshing(false);
+          else if (loadType === 'background') setIsUpdating(false);
+          
+          // Mark conversation as read even if empty
+          await chatService.markConversationAsRead(otherUserId);
+          
+          return;
+        }
+        
+        // Show message IDs for debugging
+        if (conversationMessages.length > 0) {
+          console.log('[ConversationScreen] Message IDs:', conversationMessages.map(m => m.messageId).join(', '));
+        }
+        
+        // Sort by timestamp (oldest first)
+        const sortedMessages = [...conversationMessages].sort((a, b) => a.timestamp - b.timestamp);
+        
+        // Mark conversation as read
+        await chatService.markConversationAsRead(otherUserId);
+        
+        // Auto-mark messages from the other user as seen
+        for (const msg of sortedMessages) {
+          // If this is a message from the other user and not already seen
+          if (String(msg.senderId) === otherUserId && msg.status !== 'seen') {
+            chatService.markMessageAsSeen(msg.messageId, msg.senderId);
+          }
+        }
+        
+        // Check if messages changed before updating state to avoid unnecessary re-renders
+        const didMessagesChange = JSON.stringify(sortedMessages) !== JSON.stringify(messages);
+        
+        if (didMessagesChange) {
+          console.log(`[ConversationScreen] Messages changed, updating UI with ${sortedMessages.length} messages`);
+          setMessages(sortedMessages);
+          
+          // Scroll to bottom after loading messages if they changed
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: false });
+          }, 100);
+        }
+      } catch (parseError) {
+        console.error('[ConversationScreen] Error parsing messages JSON:', parseError);
+        console.log('[ConversationScreen] Raw JSON length:', messagesJSON.length);
+        // Try to recover by resetting messages
+        if (messages.length !== 0) {
+          setMessages([]);
+        }
+      }
+      
+      // Clear loading states
+      if (loadType === 'initial') {
+        setIsInitialLoading(false);
+        firstLoadCompletedRef.current = true;
+      }
+      else if (loadType === 'refresh') setIsRefreshing(false);
+      else if (loadType === 'background') setIsUpdating(false);
+      
     } catch (error) {
-      console.error('[ConversationScreen] Error loading message history:', error);
+      console.error('[ConversationScreen] Error loading messages from AsyncStorage:', error);
+      
+      // Clear loading states even on error
+      if (loadType === 'initial') {
+        setIsInitialLoading(false);
+        firstLoadCompletedRef.current = true;
+      }
+      else if (loadType === 'refresh') setIsRefreshing(false);
+      else if (loadType === 'background') setIsUpdating(false);
     }
-  };
+  }, [recipientId, user?.id, messages]);
+
+  // Pull-to-refresh handler
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadMessagesFromStorage('refresh');
+    setRefreshing(false);
+  }, [loadMessagesFromStorage]);
+
+  // Add a focus handler to reload messages when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      console.log('[ConversationScreen] Screen focused, setting up polling');
+      
+      // Initialize connection if needed
+      const initConnection = async () => {
+        if (!chatService.isSocketConnected()) {
+          console.log('[ConversationScreen] Socket reconnecting on focus');
+          const connected = await chatService.init();
+          setIsConnected(connected);
+        } else {
+          setIsConnected(true);
+        }
+        
+        setIsInitialized(true);
+      };
+      
+      initConnection();
+      
+      // Load messages immediately when returning to screen
+      if (firstLoadCompletedRef.current) {
+        // This isn't the first load, so don't show the full loading spinner
+        loadMessagesFromStorage('background');
+      }
+      
+      // Set up polling interval
+      pollingIntervalRef.current = setInterval(() => {
+        // Use background loading type for polling to avoid spinner
+        loadMessagesFromStorage('background');
+        
+        // Also check connection status
+        setIsConnected(chatService.isSocketConnected());
+      }, 1000); // Poll every second
+      
+      return () => {
+        // Clear polling interval when screen loses focus
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+      };
+    }, [loadMessagesFromStorage])
+  );
 
   useEffect(() => {
     const initializeChat = async () => {
       try {
-        setIsLoading(true);
+        console.log('[ConversationScreen] Starting chat initialization');
+        
+        // Always set initial loading to true at the start
+        setIsInitialLoading(true);
         
         // Make sure the chat service is initialized
         if (!chatService.isSocketConnected()) {
+          console.log('[ConversationScreen] Socket not connected, initializing now');
           const connected = await chatService.init();
           setIsConnected(connected);
+          console.log(`[ConversationScreen] Socket initialization result: ${connected}`);
           if (!connected) {
             console.log('[ConversationScreen] Failed to connect to chat service');
-            setIsLoading(false);
+            setIsInitialLoading(false);
+            firstLoadCompletedRef.current = true;
             return;
           }
         } else {
+          console.log('[ConversationScreen] Socket already connected');
           setIsConnected(true);
         }
         
         // Initialize chat with recipient
         if (recipientId) {
-          const result = await chatService.initChat(recipientId);
-          if (result.success) {
-            console.log('[ConversationScreen] Chat initialized with user:', result.user);
-            setIsInitialized(true);
-          } else {
-            console.error('[ConversationScreen] Failed to initialize chat:', result.error);
-          }
+          console.log(`[ConversationScreen] Initializing chat with recipient: ${recipientId}`);
+          await chatService.markConversationAsRead(recipientId);
         }
         
-        // Fetch real message history
-        await loadMessageHistory();
+        // Load message history from AsyncStorage - use initial load type
+        await loadMessagesFromStorage('initial');
         
+        // Ensure these are set regardless of messages being found
+        setIsInitialized(true);
+        setIsInitialLoading(false);
+        firstLoadCompletedRef.current = true;
       } catch (error) {
-        console.error('[ConversationScreen] Error initializing chat:', error);
-      } finally {
-        setIsLoading(false);
+        console.error('[ConversationScreen] Error during initialization:', error);
+        setIsInitialLoading(false);
+        firstLoadCompletedRef.current = true;
+        setIsInitialized(true); // Set initialized to true even on error to allow interaction
       }
     };
-    
-    // Set up message listeners
-    const newMessageHandler = (newMessage: ChatMessage) => {
-      console.log('[ConversationScreen] New message received:', newMessage);
-      
-      // Check if this message belongs to the current conversation
-      if (
-        (String(newMessage.senderId) === String(recipientId) && String(newMessage.recipientId) === String(user?.id)) || 
-        (String(newMessage.recipientId) === String(recipientId) && String(newMessage.senderId) === String(user?.id))
-      ) {
-        console.log('[ConversationScreen] Message belongs to this conversation, updating UI');
-        
-        // Add to messages state to ensure UI updates
-        setMessages(prev => {
-          // Check if message already exists to avoid duplicates
-          const existingIndex = prev.findIndex(msg => msg.messageId === newMessage.messageId);
-          if (existingIndex >= 0) {
-            // Update existing message (e.g., status change)
-            const updated = [...prev];
-            updated[existingIndex] = {
-              ...updated[existingIndex],
-              status: newMessage.status // Update status
-            };
-            return updated;
-          }
-          return [...prev, newMessage];
-        });
-        
-        // Mark message as seen if we received it
-        if (String(newMessage.senderId) === String(recipientId)) {
-          chatService.markMessageAsSeen(newMessage.messageId, newMessage.senderId);
-        }
-        
-        // Scroll to bottom
-        setTimeout(() => {
-          flatListRef.current?.scrollToEnd({ animated: true });
-        }, 100);
-      } else {
-        console.log(`[ConversationScreen] Message does not belong to this conversation (current: ${recipientId}, got: ${newMessage.senderId}/${newMessage.recipientId})`);
-      }
-    };
-    
-    // Handle message status updates
-    const messageStatusHandler = (status: { messageId: string, status: string }) => {
-      console.log('[ConversationScreen] Message status update:', status);
-      setMessages(prev => {
-        const existingIndex = prev.findIndex(msg => msg.messageId === status.messageId);
-        if (existingIndex >= 0) {
-          const updated = [...prev];
-          updated[existingIndex] = {
-            ...updated[existingIndex],
-            status: status.status as any
-          };
-          return updated;
-        }
-        return prev;
-      });
-    };
-    
-    // Handle message seen events
-    const messageSeenHandler = (data: { messageId: string }) => {
-      console.log('[ConversationScreen] Message seen:', data);
-      setMessages(prev => {
-        const existingIndex = prev.findIndex(msg => msg.messageId === data.messageId);
-        if (existingIndex >= 0) {
-          const updated = [...prev];
-          updated[existingIndex] = {
-            ...updated[existingIndex],
-            status: 'seen'
-          };
-          return updated;
-        }
-        return prev;
-      });
-    };
-    
-    chatService.setOnNewMessage(newMessageHandler);
-    chatService.setOnMessageStatus(messageStatusHandler);
-    chatService.setOnMessageSeen(messageSeenHandler);
-    chatService.setOnConnectionChange(setIsConnected);
     
     initializeChat();
     
-    // Cleanup
     return () => {
-      // We don't disconnect, just remove message handlers for this conversation
-      chatService.setOnNewMessage(() => {}); // Empty function instead of null
-      chatService.setOnMessageStatus(() => {});
-      chatService.setOnMessageSeen(() => {});
+      // Clean up polling when component unmounts
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
     };
-  }, [recipientId, user?.id]);
-  
+  }, [recipientId, loadMessagesFromStorage]);
+
   const handleSendMessage = async () => {
     if (!message.trim() || !isConnected || !isInitialized || !recipientId || !user) {
+      console.log(`[ConversationScreen] Cannot send message - conditions not met: 
+        message: ${!!message.trim()}, 
+        connected: ${isConnected}, 
+        initialized: ${isInitialized}, 
+        recipientId: ${!!recipientId}, 
+        user: ${!!user}`);
       return;
     }
     
+    // Clear input immediately for better UX
+    const messageText = message;
+    setMessage('');
+    
     try {
-      const trimmedMessage = message.trim();
-      const messageId = await chatService.sendMessage(recipientId, trimmedMessage);
+      console.log(`[ConversationScreen] Sending message to ${recipientId}: "${messageText.substring(0, 20)}..."`);
       
-      // Add the message to the UI immediately without waiting for the socket event
-      const newMessage: ChatMessage = {
-        messageId,
-        senderId: String(user.id),
-        recipientId: String(recipientId),
-        message: trimmedMessage,
-        timestamp: Date.now(),
-        status: 'sent'
-      };
+      // Send the message through chat service
+      await chatService.sendMessage(recipientId, messageText);
       
-      // Update messages state
-      setMessages(prev => [...prev, newMessage]);
-      
-      // Message is already stored in AsyncStorage by chatService, so we just need to clear the input
-      setMessage('');
+      // Immediately load messages to see our sent message - use background loading type
+      await loadMessagesFromStorage('background');
       
       // Scroll to bottom
       setTimeout(() => {
@@ -209,40 +321,32 @@ export default function ConversationScreen() {
       
     } catch (error) {
       console.error('[ConversationScreen] Error sending message:', error);
-      // TODO: Show error to user
+      
+      // Restore the message text if it failed
+      setMessage(messageText);
     }
   };
-  
+
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
-  
+
   const isMyMessage = (senderId: string) => {
-    return String(senderId) === String(user?.id);
-  };
-  
-  const renderMessageStatus = (status: string) => {
-    if (status === 'sent') {
-      return <Ionicons name="checkmark" size={16} color="#999" />;
-    } else if (status === 'delivered') {
-      return <Ionicons name="checkmark-done" size={16} color="#999" />;
-    } else if (status === 'seen') {
-      return <Ionicons name="checkmark-done" size={16} color="#1976D2" />;
-    }
-    return null;
+    return user?.id && String(senderId) === String(user.id);
   };
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await loadMessageHistory();
-    } catch (error) {
-      console.error('[ConversationScreen] Error refreshing messages:', error);
-    } finally {
-      setRefreshing(false);
+  const renderMessageStatus = (status: string) => {
+    if (status === 'sent') {
+      return <Ionicons name="checkmark" size={14} color="#999" />;
+    } else if (status === 'delivered') {
+      return <Ionicons name="checkmark-done" size={14} color="#999" />;
+    } else if (status === 'seen') {
+      return <Ionicons name="checkmark-done" size={14} color="#2196F3" />;
+    } else {
+      return <Ionicons name="time-outline" size={14} color="#f44336" />;
     }
-  }, [loadMessageHistory]);
+  };
 
   return (
     <>
@@ -261,7 +365,8 @@ export default function ConversationScreen() {
       />
       
       <SafeAreaView style={styles.container}>
-        {isLoading ? (
+        {isInitialLoading ? (
+          // Only show full loading screen on initial load
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#1976D2" />
             <Text style={styles.loadingText}>Loading conversation...</Text>
@@ -272,21 +377,39 @@ export default function ConversationScreen() {
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
           >
+            {isRefreshing && (
+              <View style={styles.refreshIndicator}>
+                <ActivityIndicator size="small" color="#1976D2" />
+              </View>
+            )}
+            
             <FlatList
               ref={flatListRef}
               data={messages}
               keyExtractor={(item) => item.messageId}
-              contentContainerStyle={styles.messagesContainer}
+              contentContainerStyle={[
+                styles.messagesContainer,
+                messages.length === 0 && styles.emptyMessagesContainer
+              ]}
+              ListEmptyComponent={
+                <View style={styles.emptyStateContainer}>
+                  <Ionicons name="chatbubble-ellipses-outline" size={60} color="#ccc" />
+                  <Text style={styles.emptyStateText}>No messages yet</Text>
+                  <Text style={styles.emptyStateSubtext}>Send a message to start the conversation</Text>
+                </View>
+              }
               refreshControl={
                 <RefreshControl 
                   refreshing={refreshing} 
-                  onRefresh={onRefresh}
+                  onRefresh={handleRefresh}
                   colors={['#1976D2']}
                   tintColor="#1976D2"
                 />
               }
               onLayout={() => {
-                flatListRef.current?.scrollToEnd({ animated: false });
+                if (messages.length > 0) {
+                  flatListRef.current?.scrollToEnd({ animated: false });
+                }
               }}
               renderItem={({ item }) => {
                 const isMine = isMyMessage(item.senderId);
@@ -311,6 +434,12 @@ export default function ConversationScreen() {
                 );
               }}
             />
+            
+            {isUpdating && (
+              <View style={styles.updateIndicator}>
+                <ActivityIndicator size="small" color="#1976D2" style={styles.updateSpinner} />
+              </View>
+            )}
             
             <View style={styles.inputContainer}>
               <TextInput
@@ -446,5 +575,46 @@ const styles = StyleSheet.create({
   connectedText: {
     fontSize: 12,
     color: '#4CAF50',
+  },
+  refreshIndicator: {
+    position: 'absolute',
+    top: 8,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    alignItems: 'center',
+    height: 30,
+  },
+  updateIndicator: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 20,
+    height: 20,
+    zIndex: 10,
+    opacity: 0.7,
+  },
+  updateSpinner: {
+    transform: [{ scale: 0.6 }],
+  },
+  emptyMessagesContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyStateContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 8,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: '#666',
   },
 }); 

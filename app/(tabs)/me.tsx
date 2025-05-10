@@ -41,7 +41,7 @@ export default function MeScreen() {
       const now = Date.now();
       // Prevent restarting the location updates if less than 5 seconds have passed
       if (now - lastUpdateStartTime.current < 5000) {
-        console.log('[MeScreen] Skipping redundant location update restart (too soon)');
+        //console.log('[MeScreen] Skipping redundant location update restart (too soon)');
         return;
       }
       
@@ -70,7 +70,7 @@ export default function MeScreen() {
     // Only disconnect on unmount if we're navigating away from the app, not just to another tab
     return () => {
       // Don't disconnect when the component unmounts, only update if not sharing
-      console.log('[MeScreen] Cleanup effect running');
+      //console.log('[MeScreen] Cleanup effect running');
       if (!sharePosition && socketService.isLocationSharingEnabled()) {
         console.log('[MeScreen] Location sharing disabled, stopping updates');
         socketService.stopLocationUpdates();
