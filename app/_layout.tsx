@@ -9,6 +9,7 @@ import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthProvider } from './context/AuthContext';
+import { SocketProvider } from './context/SocketContext';
 import DebugOverlay from './components/DebugOverlay';
 import appInitService from './services/appInitService';
 
@@ -25,7 +26,7 @@ export default function RootLayout() {
     if (loaded) {
       SplashScreen.hideAsync();
       
-      // Initialize app services (socket, chat, etc.) based on user preferences
+      // Initialize non-socket app services
       appInitService.initializeAppServices().catch(error => {
         console.error('[RootLayout] Error initializing app services:', error);
       });
@@ -38,17 +39,19 @@ export default function RootLayout() {
 
   return (
     <AuthProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="+not-found" />
-          <Stack.Screen name="index" />
-          <Stack.Screen name="auth" />
-          <Stack.Screen name="conversation/[id]" options={{ headerShown: true }} />
-        </Stack>
-        <StatusBar style="auto" />
-        <DebugOverlay />
-      </ThemeProvider>
+      <SocketProvider>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="+not-found" />
+            <Stack.Screen name="index" />
+            <Stack.Screen name="auth" />
+            <Stack.Screen name="conversation/[id]" options={{ headerShown: true }} />
+          </Stack>
+          <StatusBar style="auto" />
+          <DebugOverlay />
+        </ThemeProvider>
+      </SocketProvider>
     </AuthProvider>
   );
 }

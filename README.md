@@ -150,3 +150,58 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+## Socket Management System
+
+The application uses a centralized socket management system to handle real-time communications for both location sharing and chat functionality.
+
+### Socket Architecture
+
+1. **SocketProvider**: Application-level socket management
+   - Handles socket lifecycle (connect, disconnect, reconnect)
+   - Manages authentication state
+   - Responds to network and app state changes
+   - Exposes connection status to components
+
+2. **Service Integration**:
+   - `socketService`: Core socket functionality
+   - `chatService`: Uses the shared socket for chat functionality
+
+3. **Connection Management**:
+   - Automatically connects when user logs in
+   - Reconnects when app returns to foreground
+   - Reconnects on network changes
+   - Disconnects on logout
+
+### Usage in Components
+
+```tsx
+import { useSocket } from '../context/SocketContext';
+
+function MyComponent() {
+  const { isConnected, isAuthenticated, connectionError, forceReconnect } = useSocket();
+  
+  // Use socket state in your component
+  
+  return (
+    <View>
+      {isConnected ? (
+        <Text>Connected to real-time service</Text>
+      ) : (
+        <Button 
+          title="Reconnect" 
+          onPress={forceReconnect} 
+        />
+      )}
+    </View>
+  );
+}
+```
+
+### Benefits
+
+- Single socket connection for all features
+- Predictable connection lifecycle
+- Improved performance and reduced battery usage
+- Centralized error handling
+- Reduces code duplication across components

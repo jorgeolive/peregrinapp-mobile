@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { StyleSheet, View, Platform, TouchableOpacity, Text, AppState } from 'react-native';
+import { StyleSheet, View, Platform, Text, AppState } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   MapView,
@@ -16,14 +16,15 @@ import { fetchStageDetails } from '../services/stageService';
 import { StageModal } from '../components/StageModal';
 import { useLocation } from '../hooks/useLocation';
 import { MapLayers } from '../components/MapLayers';
+import { OtherUsersOverlay } from '../components/OtherUsersOverlay';
 import { LocationButton } from '../components/LocationButton';
 import { mapStyle } from '../components/MapStyles';
-import socketService, { UserData } from '../services/socketService';
+import socketService from '../services/socketService';
 import { useAuth } from '../context/AuthContext';
 import { getUserDetails } from '../services/userService';
 import { UserDetailsModal } from '../components/UserDetailsModal';
-import chatService from '../services/chatService';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useOtherUsers } from '../hooks/useOtherUsers';
 
 // Define the user's hardcoded position
 const HARDCODED_POSITION = {
@@ -54,16 +55,9 @@ export default function ExploreScreen() {
   const [isStageLoading, setIsStageLoading] = useState(false);
   const [followUserLocation, setFollowUserLocation] = useState(false);
   const followTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [useCustomMarker, setUseCustomMarker] = useState(false);
-  const [showOtherUsers, setShowOtherUsers] = useState(true);
-  const [otherUsers, setOtherUsers] = useState<{
-    id: string;
-    name: string;
-    longitude: number;
-    latitude: number;
-    color: string;
-  }[]>([]);
-  const [isConnectedToSocket, setIsConnectedToSocket] = useState(false);
+  
+  // Get other users from the custom hook
+  const { otherUsers, isConnectedToSocket, ensureSocketConnection } = useOtherUsers();
   
   // Add state to track current zoom level
   const [currentZoomLevel, setCurrentZoomLevel] = useState(6);
@@ -91,107 +85,22 @@ export default function ExploreScreen() {
   // Track if location watcher has been started
   const locationWatcherStarted = useRef(false);
   
-  // Initialize socket and listen for user updates
-  useEffect(() => {
-    console.log('Socket initialization useEffect running, user:', user?.id);
-    
-    if (user) {
-      // Set up callback for user updates from socket first, before attempting to connect
-      // This ensures the callback is registered even if the socket reconnects later
-      console.log('Setting up socket.setOnUsersUpdate callback');
-      socketService.setOnUsersUpdate((users: UserData[]) => {
-        //console.log('Socket users_update event received with users:', users.length);
-        
-        // Transform users from socket to the format needed by MapLayers with proper coordinate handling
-        const transformedUsers = users
-          .filter(u => u.id !== user.id && u.location) // Filter out current user and users without location
-          .map(u => {
-            // Create a proper user object with correct types
-            const otherUser: {
-              id: string;
-              name: string;
-              longitude: number;
-              latitude: number;
-              color: string;
-            } = {
-              id: String(u.id),
-              name: u.name,
-              // Ensure coordinates are properly converted to numbers
-              longitude: parseFloat(String(u.location?.longitude)),
-              latitude: parseFloat(String(u.location?.latitude)),
-              // Ensure color is always a string
-              color: '255, 87, 34' // Use a default color for all users
-            };
-            
-            return otherUser;
-          });
-        
-        // Only update if we have users
-        if (transformedUsers.length > 0) {
-          setOtherUsers(transformedUsers);
-        }
-      });
-      
-      // Initialize socket connection after callback is set up
-      console.log('Attempting to initialize socket connection');
-      socketService.init().then(() => {
-        setIsConnectedToSocket(true);
-        console.log('Socket connected in explore screen');
-      }).catch(error => {
-        console.error('Socket connection error:', error);
-        setIsConnectedToSocket(false);
-      });
-    }
-    
-    return () => {
-      // Clean up socket connection when component unmounts
-      socketService.disconnect();
-    };
-  }, [user]);
-  
-  // Add a new useEffect to start location updates when the map loads
+  // Add useEffect to start location updates when the map loads
   useEffect(() => {
     // Only start location updates if user is logged in and socket is connected
     // and we haven't already initialized updates
     if (user && isConnectedToSocket && !locationUpdatesInitialized.current) {
-      // console.log('[ExploreScreen] Setting up location updates for the map');
       locationUpdatesInitialized.current = true;
       
-      // Make sure the location function is available
       socketService.setPositionFunction(getCurrentLocation);
       
-      // Check if location sharing is already enabled
       socketService.getLocationSharingPreference().then(sharingEnabled => {
         if (sharingEnabled) {
-          // console.log('[ExploreScreen] Location sharing is enabled, starting updates');
           socketService.startLocationUpdates(getCurrentLocation);
-        } else {
-          // console.log('[ExploreScreen] Location sharing is disabled, not starting updates');
         }
       });
     }
   }, [user, isConnectedToSocket]); 
-  
-  // Function to generate a consistent color for a user based on their ID
-  const getRandomColor = (userId: string) => {
-    // Simple hash function to generate a consistent color for a user ID
-    const hash = userId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    
-    // Predefined colors
-    const colors = [
-      '233, 30, 99',   // Pink
-      '156, 39, 176',  // Purple
-      '0, 150, 136',   // Teal
-      '255, 152, 0',   // Orange
-      '121, 85, 72',   // Brown
-      '63, 81, 181',   // Indigo
-      '33, 150, 243',  // Blue
-      '76, 175, 80',   // Green
-      '255, 193, 7'    // Amber
-    ];
-    
-    return colors[hash % colors.length];
-  };
 
   const handleAlberguePress = async (event: any) => {
     // Prevent camera updates when pressing albergues
@@ -254,7 +163,6 @@ export default function ExploreScreen() {
       followTimeoutRef.current = null;
     }
     
-    // Find the user in our local state to get their name
     const clickedUser = otherUsers.find(u => u.id === userId);
     console.log(`[ExploreScreen] User marker clicked for userId: ${userId}, name: ${clickedUser?.name || 'unknown'}`);
     
@@ -295,22 +203,12 @@ export default function ExploreScreen() {
     setUserDetails(null);
     setUserDetailsError(null);
   };
-  
-  // Handle send DM action
-  const handleSendDM = () => {
-    // TODO: Implement DM functionality or navigation to DM screen
-    console.log(`Send DM to user ${selectedUserId}`);
-    handleCloseUserModal();
-    // Navigate to DM screen if needed
-  };
-
+ 
   // Add useEffect to start location watcher on mount
   useEffect(() => {
     if (user && !locationWatcherStarted.current) {
-      // console.log('[ExploreScreen] Starting location watcher on component mount');
       startLocationWatcher().then(success => {
         locationWatcherStarted.current = success;
-        // console.log(`[ExploreScreen] Location watcher started: ${success}`);
       });
     }
     
@@ -319,46 +217,20 @@ export default function ExploreScreen() {
     };
   }, [user, startLocationWatcher]);
   
-  // Modify the centerOnUserLocation function to be memoized
-  const centerOnUserLocation = useCallback(async () => {
-    // Clear any existing timeout
-    if (followTimeoutRef.current) {
-      clearTimeout(followTimeoutRef.current);
-      followTimeoutRef.current = null;
-    }
+  const centerOnUserLocation = useCallback(() => {
+    if (userLocation && mapRef.current) {
+      if (mapRef.current) {
 
-    // Reset follow mode
-    setFollowUserLocation(false);
-
-    const location = await getCurrentLocation();
-    if (location) {
-      // Set follow mode
-      setFollowUserLocation(true);
-
-      // Set a new timeout to disable follow mode
+        setCurrentZoomLevel(15);
+        setFollowUserLocation(true);
+      }
+      
       followTimeoutRef.current = setTimeout(() => {
         setFollowUserLocation(false);
         followTimeoutRef.current = null;
-      }, 2000);
-    } else {
-      // Use hardcoded position if actual location is not available
-      setFollowUserLocation(true);
-      followTimeoutRef.current = setTimeout(() => {
-        setFollowUserLocation(false);
-        followTimeoutRef.current = null;
-      }, 2000);
+      }, 30000);
     }
-  }, []); 
-
-  // Toggle between custom and standard user marker
-  const toggleUserMarker = () => {
-    setUseCustomMarker(prev => !prev);
-  };
-
-  // Toggle showing other users
-  const toggleOtherUsers = () => {
-    setShowOtherUsers(prev => !prev);
-  };
+  }, [userLocation]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -369,63 +241,25 @@ export default function ExploreScreen() {
     };
   }, []);
 
-  // Add a helper effect to ensure the socket reconnects whenever the screen gains focus
+  // Add a reference to track the screen's visibility
+  const isScreenFocused = useRef(false);
+  
+  // Use useFocusEffect to track screen focus state for map performance
   useFocusEffect(
     useCallback(() => {
-      console.log('Socket reconnection useFocusEffect running, user:', user?.id);
-      
-      // Only try to reconnect if we have a user and socket is definitely disconnected
-      // This prevents reconnection attempts when we're already connected
-      if (user && socketService.getDebugInfo().connected === false) {
-        console.log('Socket is definitely disconnected, attempting to reconnect');
-        socketService.ensureConnection().then((success) => {
-          setIsConnectedToSocket(success);
-          console.log('Socket reconnection attempt result:', success);
-        }).catch(error => {
-          console.error('Socket reconnection error:', error);
-          setIsConnectedToSocket(false);
-        });
-      }
+      isScreenFocused.current = true;
+      console.log('[ExploreScreen] Screen focused');
       
       return () => {
-        // No cleanup needed
+        isScreenFocused.current = false;
+        console.log('[ExploreScreen] Screen unfocused');
       };
-    }, [user])
+    }, [])
   );
-
-  // Add a helper effect to handle app background/foreground transitions
-  useEffect(() => {
-    let isHandlingAppState = false;
-    
-    const handleAppStateChange = async (nextAppState: string) => {
-      // Prevent multiple simultaneous handling of app state changes
-      if (isHandlingAppState) return;
-      
-      try {
-        isHandlingAppState = true;
-        
-        if (nextAppState === 'active' && user) {
-          console.log('App came to foreground, checking socket connection');
-          
-          // Only attempt reconnection if definitely disconnected
-          if (socketService.getDebugInfo().connected === false) {
-            console.log('Socket definitely disconnected, reconnecting');
-            const success = await socketService.ensureConnection();
-            setIsConnectedToSocket(success);
-            console.log('Socket reconnection attempt result:', success);
-          }
-        }
-      } finally {
-        isHandlingAppState = false;
-      }
-    };
-    
-    const appStateListener = AppState.addEventListener('change', handleAppStateChange);
-    
-    return () => {
-      appStateListener.remove();
-    };
-  }, [user]);
+  
+  // The socket connection is now managed by SocketProvider, so we don't need
+  // to handle app state changes or reconnection here
+  // All socket and connection listeners have been removed
 
   return (
     <SafeAreaView style={styles.container}>
@@ -445,13 +279,12 @@ export default function ExploreScreen() {
             followTimeoutRef.current = null;
           }
         }}
-        onRegionDidChange={(e) => {
+        //onRegionDidChange={(e) => {
           // Track zoom level changes when the user interacts with the map
-          if (e.properties.zoomLevel) {
-            setCurrentZoomLevel(e.properties.zoomLevel);
-            // console.log(`[ExploreScreen] Map zoom level changed to: ${e.properties.zoomLevel}`);
-          }
-        }}
+        //  if (e.properties.zoomLevel) {
+        //    setCurrentZoomLevel(e.properties.zoomLevel);
+        //  }
+        //}
       >
         {userLocation && followUserLocation && (
           <Camera
@@ -462,46 +295,30 @@ export default function ExploreScreen() {
             followZoomLevel={currentZoomLevel}
           />
         )}
-        
-        {/* Only show built-in user location when not using custom marker */}
-        {!useCustomMarker && (
-          <UserLocation
-            visible={true}
-            showsUserHeadingIndicator={true}
-            animated={true}
-            androidRenderMode="compass"
-            renderMode={Platform.OS === 'android' ? 'native' : 'normal'} 
-          />
-        )}
-        
+
+        <UserLocation
+          visible={true}
+          showsUserHeadingIndicator={true}
+          animated={true}
+          androidRenderMode="compass"
+          renderMode={Platform.OS === 'android' ? 'native' : 'normal'} 
+        />
+
         <MapLayers
           onAlberguePress={handleAlberguePress}
           onStagePress={handleStagePress}
-          onUserPress={handleUserPress}
           userLocation={userLocation}
-          showCustomUserMarker={useCustomMarker}
-          otherUsers={showOtherUsers ? otherUsers : []}
+        />
+        
+        {/* Separate component for other users that updates independently */}
+        <OtherUsersOverlay 
+          otherUsers={otherUsers}
+          onUserPress={handleUserPress}
         />
       </MapView>
       
       <View style={styles.buttonContainer}>
         <LocationButton onPress={centerOnUserLocation} />
-        <TouchableOpacity 
-          style={[styles.markerToggle, useCustomMarker ? styles.markerToggleActive : {}]}
-          onPress={toggleUserMarker}
-        >
-          <Text style={styles.markerToggleText}>
-            {useCustomMarker ? 'Custom' : 'Standard'}
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={[styles.markerToggle, showOtherUsers ? styles.otherUsersActive : {}]}
-          onPress={toggleOtherUsers}
-        >
-          <Text style={styles.markerToggleText}>
-            {showOtherUsers ? 'Hide' : 'Show'} Users
-          </Text>
-        </TouchableOpacity>
       </View>
       
       {isConnectedToSocket && (
@@ -523,7 +340,10 @@ export default function ExploreScreen() {
         visible={isStageModalVisible}
         stageDetails={stageDetails}
         isLoading={isStageLoading}
-        onClose={() => setIsStageModalVisible(false)}
+        onClose={() => {
+          setIsStageModalVisible(false);
+          setStageDetails(null);
+        }}
       />
       <UserDetailsModal
         visible={!!selectedUserId}
@@ -534,7 +354,6 @@ export default function ExploreScreen() {
         loading={isUserDetailsLoading}
         error={userDetailsError || undefined}
         onClose={handleCloseUserModal}
-        onSendDM={handleSendDM}
         onStartChat={(userId, name) => {
           console.log(`[ExploreScreen] Starting chat with user ${name} (${userId})`);
           handleCloseUserModal();
@@ -564,31 +383,6 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     alignItems: 'center',
     gap: 10,
-  },
-  markerToggle: {
-    backgroundColor: 'white',
-    padding: 8,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
-    width: 48,
-    height: 48,
-  },
-  markerToggleActive: {
-    backgroundColor: '#1976D2',
-  },
-  otherUsersActive: {
-    backgroundColor: '#FF5722',
-  },
-  markerToggleText: {
-    fontSize: 8,
-    fontWeight: 'bold',
-    color: '#333',
   },
   socketStatusContainer: {
     position: 'absolute',

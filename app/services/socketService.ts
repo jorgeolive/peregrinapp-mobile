@@ -37,6 +37,12 @@ export interface ConnectionError {
 
 const SERVER_URL = API_BASE_URL;
 
+// Shared socket event handling
+type EventCallback = (data: any) => void;
+interface EventListeners {
+  [eventName: string]: EventCallback[];
+}
+
 class SocketService {
   private socket: Socket | null = null;
   private isConnected: boolean = false;
@@ -59,6 +65,9 @@ class SocketService {
   private onConnectionError: ((error: ConnectionError) => void) | null = null;
   private onAuthenticated: ((authData: AuthData) => void) | null = null;
   private onDisconnect: ((reason: string) => void) | null = null;
+  
+  // Shared event listeners tracking
+  private sharedEventListeners: EventListeners = {};
 
   /**
    * Initialize socket connection
@@ -217,6 +226,9 @@ class SocketService {
       console.log('[SocketService] Socket connected successfully');
       this.isConnected = true;
       this.reconnectAttempts = 0;
+      
+      // Notify any shared listeners about connection
+      this.notifySharedListeners('connect', null);
     });
 
     this.socket.on('authenticated', (data: AuthData) => {
@@ -228,6 +240,9 @@ class SocketService {
       if (this.onAuthenticated) {
         this.onAuthenticated(data);
       }
+      
+      // Notify any shared listeners about authentication
+      this.notifySharedListeners('authenticated', data);
       
       // If location sharing was enabled before reconnection, restart it
       if (this.locationSharing && this.getCurrentPositionFn) {
@@ -282,22 +297,25 @@ class SocketService {
       } else {
         //console.log(`[SocketService] No onUsersUpdate callback set`);
       }
+      
+      // Pass users_update to shared listeners
+      this.notifySharedListeners('users_update', filteredUsers);
     });
 
-    // Add explicit listeners for chat events
+    // These events will now be handled by the shared event system
     this.socket.on('new_message', (message: any) => {
       console.log('[SocketService] Received new_message event:', message);
-      // This will be handled by chatService through emitEvent callback
+      this.notifySharedListeners('new_message', message);
     });
     
     this.socket.on('message_status', (status: any) => {
       console.log('[SocketService] Received message_status event:', status);
-      // This will be handled by chatService through emitEvent callback
+      this.notifySharedListeners('message_status', status);
     });
     
     this.socket.on('message_seen', (data: any) => {
       console.log('[SocketService] Received message_seen event:', data);
-      // This will be handled by chatService through emitEvent callback
+      this.notifySharedListeners('message_seen', data);
     });
 
     this.socket.on('disconnect', (reason) => {
@@ -308,6 +326,9 @@ class SocketService {
       if (this.onDisconnect) {
         this.onDisconnect(reason);
       }
+      
+      // Notify shared listeners
+      this.notifySharedListeners('disconnect', reason);
     });
 
     this.socket.on('connect_error', (error) => {
@@ -332,16 +353,37 @@ class SocketService {
       
       console.log(`[SocketService] Connection error type: ${errorType}, attempt: ${this.reconnectAttempts}/5`);
       
-      this.handleConnectionError({
+      const errorData = {
         type: errorType,
         message: errorMsg || 'Connection error'
-      });
+      };
+      
+      this.handleConnectionError(errorData);
+      
+      // Notify shared listeners
+      this.notifySharedListeners('connect_error', errorData);
       
       if (this.reconnectAttempts > 5) {
         console.log('[SocketService] Max reconnection attempts reached, giving up');
         this.disconnect();
       }
     });
+  }
+
+  /**
+   * Notify all shared event listeners for a particular event
+   */
+  private notifySharedListeners(eventName: string, data: any): void {
+    const listeners = this.sharedEventListeners[eventName];
+    if (listeners && listeners.length > 0) {
+      listeners.forEach(callback => {
+        try {
+          callback(data);
+        } catch (error) {
+          console.error(`[SocketService] Error in shared listener for ${eventName}:`, error);
+        }
+      });
+    }
   }
 
   /**
@@ -767,28 +809,60 @@ class SocketService {
   }
 
   /**
-   * Add a listener for a custom event
-   * This allows other services to listen for events without managing their own socket
+   * Add a listener for a socket event - shared API method
+   * Returns a cleanup function to remove the listener
    */
   public addEventListener(eventName: string, callback: (data: any) => void): () => void {
-    if (!this.socket) {
-      console.error(`[SocketService] Cannot add listener for ${eventName}: socket not initialized`);
-      return () => {}; // Return empty cleanup function
-    }
-
-    console.log(`[SocketService] Adding listener for event: ${eventName}`);
-    this.socket.on(eventName, (data: any) => {
-      console.log(`[SocketService] Event received: ${eventName}`, data);
-      callback(data);
-    });
+    console.log(`[SocketService] Adding shared listener for event: ${eventName}`);
     
-    // Return a function to remove the listener
+    // Initialize array for this event if it doesn't exist
+    if (!this.sharedEventListeners[eventName]) {
+      this.sharedEventListeners[eventName] = [];
+    }
+    
+    // Add callback to the listeners array
+    this.sharedEventListeners[eventName].push(callback);
+    
+    // Return cleanup function
     return () => {
-      if (this.socket) {
-        console.log(`[SocketService] Removing listener for event: ${eventName}`);
-        this.socket.off(eventName, callback);
+      if (this.sharedEventListeners[eventName]) {
+        const index = this.sharedEventListeners[eventName].indexOf(callback);
+        if (index !== -1) {
+          this.sharedEventListeners[eventName].splice(index, 1);
+          console.log(`[SocketService] Removed shared listener for event: ${eventName}`);
+        }
       }
     };
+  }
+  
+  /**
+   * Emit event with acknowledgment (callback)
+   * Returns a promise that resolves with the acknowledgment
+   */
+  public emitWithAck(eventName: string, data: any, timeout: number = 10000): Promise<any> {
+    return new Promise((resolve, reject) => {
+      if (!this.socket || !this.isConnected) {
+        console.error(`[SocketService] Cannot emit event ${eventName}: socket not connected`);
+        reject(new Error('Socket not connected'));
+        return;
+      }
+      
+      // Set timeout for acknowledgment
+      const timeoutId = setTimeout(() => {
+        reject(new Error(`Acknowledgment timeout for event ${eventName}`));
+      }, timeout);
+      
+      try {
+        this.socket.emit(eventName, data, (response: any) => {
+          clearTimeout(timeoutId);
+          resolve(response);
+        });
+      } catch (error) {
+        clearTimeout(timeoutId);
+        console.error(`[SocketService] Error emitting event ${eventName}:`, error);
+        reject(error);
+      }
+    });
   }
 
   /**
@@ -810,6 +884,20 @@ class SocketService {
     
     console.log('[SocketService] Attempting to reconnect socket');
     return this.init();
+  }
+  
+  /**
+   * Get current userId from auth data
+   */
+  public getUserId(): string | null {
+    return this.authData?.userId || null;
+  }
+  
+  /**
+   * Check if socket instance exists and is connected
+   */
+  public isSocketConnected(): boolean {
+    return !!this.socket && this.isConnected;
   }
 }
 

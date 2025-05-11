@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
 import { API_BASE_URL } from '../config';
+import socketService from './socketService';
 
 // Keys for AsyncStorage
 const MESSAGES_KEY = 'chat_messages';
@@ -42,13 +43,14 @@ export interface ChatUser {
 
 class ChatService {
   // Core state
-  private socket: Socket | null = null;
   private userId: string | null = null;
   private isConnected: boolean = false;
   private token: string | null = null;
-  private isReconnecting: boolean = false;
   
-  // Connection management
+  // Connection state
+  private cleanupFunctions: (() => void)[] = [];
+  
+  // Check connection periodically
   private connectionCheckInterval: NodeJS.Timeout | null = null;
 
   /**
@@ -72,88 +74,35 @@ class ChatService {
     // Get user ID from storage
     await this.getUserId();
     
-    // Connect to socket
-    return this.connect();
-  }
-  
-  /**
-   * Establish socket connection
-   */
-  private async connect(): Promise<boolean> {
-    if (this.socket) {
-      console.log('[ChatService] Already connected, disconnecting first');
-      this.disconnect();
-    }
-    
-    try {
-      console.log('[ChatService] Connecting to socket');
-      this.isReconnecting = true;
-      
-      // Create socket connection
-      this.socket = io(API_BASE_URL, {
-        auth: { token: this.token },
-        reconnectionAttempts: 5,
-        timeout: 10000,
-        transports: ['websocket', 'polling']
-      });
-      
-      // Set up connection promise
-      return new Promise((resolve) => {
-        if (!this.socket) {
-          this.isReconnecting = false;
-          resolve(false);
-          return;
-        }
-        
-        // Handle successful connection
-        this.socket.on('connect', () => {
-          console.log('[ChatService] Socket connected');
-          this.isConnected = true;
-          this.isReconnecting = false;
-          
-          // Set up event listeners
-          this.setupEventListeners();
-          
-          // Start connection check interval
-          this.startConnectionCheck();
-          
-          resolve(true);
-        });
-        
-        // Handle connection error
-        this.socket.on('connect_error', (error) => {
-          console.error('[ChatService] Connection error', error.message);
-          this.isConnected = false;
-          this.isReconnecting = false;
-          
-          resolve(false);
-        });
-        
-        // Set connection timeout
-        setTimeout(() => {
-          if (!this.isConnected) {
-            console.log('[ChatService] Connection timeout');
-            this.isReconnecting = false;
-            resolve(false);
-          }
-        }, 10000);
-      });
-    } catch (error) {
-      console.error('[ChatService] Failed to connect', error);
-      this.isReconnecting = false;
+    // Ensure the socket is connected via socketService
+    const connected = await socketService.ensureConnection();
+    if (!connected) {
+      console.log('[ChatService] Socket connection failed');
       return false;
     }
+    
+    // Set up event listeners using the shared socket
+    this.setupEventListeners();
+    
+    // Start connection check interval
+    this.startConnectionCheck();
+    
+    this.isConnected = true;
+    return true;
   }
   
   /**
-   * Set up socket event listeners
+   * Set up socket event listeners using the shared socket service
    */
   private setupEventListeners(): void {
-    if (!this.socket) return;
+    console.log('[ChatService] Setting up event listeners');
+    
+    // Clean up any existing listeners
+    this.cleanUpEventListeners();
     
     // Handle incoming messages
-    this.socket.on('new_message', async (message: any) => {
-      console.log('[ChatService] New message received', message);
+    const newMessageCleanup = socketService.addEventListener('new_message', async (message: any) => {
+      console.log('[ChatService] New message received via shared socket', message);
       
       // Ensure message has required fields
       if (!message || !message.messageId || !message.senderId || !message.recipientId) {
@@ -182,8 +131,8 @@ class ChatService {
     });
     
     // Handle message status updates
-    this.socket.on('message_status', async (status: any) => {
-      console.log('[ChatService] Message status update', status);
+    const messageStatusCleanup = socketService.addEventListener('message_status', async (status: any) => {
+      console.log('[ChatService] Message status update via shared socket', status);
       
       if (!status || !status.messageId) {
         console.error('[ChatService] Received invalid status update', status);
@@ -195,8 +144,8 @@ class ChatService {
     });
     
     // Handle message seen updates
-    this.socket.on('message_seen', async (data: any) => {
-      console.log('[ChatService] Message seen update', data);
+    const messageSeenCleanup = socketService.addEventListener('message_seen', async (data: any) => {
+      console.log('[ChatService] Message seen update via shared socket', data);
       
       if (!data || !data.messageId) {
         console.error('[ChatService] Received invalid seen update', data);
@@ -208,25 +157,45 @@ class ChatService {
     });
     
     // Handle disconnection
-    this.socket.on('disconnect', () => {
-      console.log('[ChatService] Socket disconnected');
+    const disconnectCleanup = socketService.addEventListener('disconnect', () => {
+      console.log('[ChatService] Socket disconnected event via shared socket');
       this.isConnected = false;
     });
+    
+    // Add connect listener
+    const connectCleanup = socketService.addEventListener('connect', () => {
+      console.log('[ChatService] Socket connected event via shared socket');
+      this.isConnected = true;
+    });
+    
+    // Store cleanup functions
+    this.cleanupFunctions.push(
+      newMessageCleanup,
+      messageStatusCleanup, 
+      messageSeenCleanup,
+      disconnectCleanup,
+      connectCleanup
+    );
+  }
+  
+  /**
+   * Clean up all event listeners
+   */
+  private cleanUpEventListeners(): void {
+    console.log('[ChatService] Cleaning up event listeners');
+    this.cleanupFunctions.forEach(cleanup => cleanup());
+    this.cleanupFunctions = [];
   }
   
   /**
    * Mark a message as delivered
    */
   private markAsDelivered(messageId: string, senderId: string): void {
-    if (!this.socket || !this.isConnected) return;
+    if (!socketService.isSocketConnected()) return;
     
-    this.socket.emit('message_delivered', {
+    socketService.emitEvent('message_delivered', {
       messageId,
       senderId
-    }, (ack: any) => {
-      if (!ack || !ack.success) {
-        console.log(`[ChatService] Failed to confirm delivery for message ${messageId}: ${ack?.error || 'No acknowledgment'}`);
-      }
     });
   }
   
@@ -242,10 +211,11 @@ class ChatService {
     // Check connection status every 10 seconds
     this.connectionCheckInterval = setInterval(() => {
       const wasConnected = this.isConnected;
-      this.isConnected = this.socket?.connected || false;
+      // Use socketService to check connection status
+      this.isConnected = socketService.isSocketConnected();
       
-      // Only log on change if not reconnecting
-      if (wasConnected !== this.isConnected && !this.isReconnecting) {
+      // Only log on change
+      if (wasConnected !== this.isConnected) {
         console.log(`[ChatService] Connection status changed to: ${this.isConnected}`);
       }
     }, 5000);
@@ -258,6 +228,14 @@ class ChatService {
     if (this.userId) return;
     
     try {
+      // First try to get from socketService
+      const socketUserId = socketService.getUserId();
+      if (socketUserId) {
+        this.userId = socketUserId;
+        console.log('[ChatService] Got user ID from socketService:', this.userId);
+        return;
+      }
+      
       // Try to get from userData
       const userData = await AsyncStorage.getItem('userData');
       if (userData) {
@@ -545,14 +523,10 @@ class ChatService {
     await this.updateMessageStatus(messageId, 'seen');
     
     // Notify server with acknowledgment
-    if (this.socket && this.isConnected) {
-      this.socket.emit('message_seen', {
+    if (socketService.isSocketConnected()) {
+      socketService.emitEvent('message_seen', {
         messageId,
         senderId
-      }, (ack: any) => {
-        if (!ack || !ack.success) {
-          console.log(`[ChatService] Failed to confirm seen status for message ${messageId}: ${ack?.error || 'No acknowledgment'}`);
-        }
       });
     }
   }
@@ -569,7 +543,7 @@ class ChatService {
     }
     
     // Check connection
-    if (!this.socket || !this.isConnected) {
+    if (!socketService.isSocketConnected()) {
       throw new Error('Not connected to chat server');
     }
     
@@ -593,34 +567,26 @@ class ChatService {
     await this.updateConversation(message);
     
     // Send to server with acknowledgment
-    return new Promise((resolve, reject) => {
-      // Set a timeout for the acknowledgment
-      const ackTimeout = setTimeout(() => {
-        console.log(`[ChatService] Acknowledgment timeout for message ${messageId}`);
-        this.updateMessageStatus(messageId, 'failed')
-          .catch(error => console.error('[ChatService] Error updating status:', error));
-        resolve(messageId); // Still return the message ID even if ack failed
-      }, 10000); // 10-second timeout
-      
-      this.socket!.emit('send_message', {
+    try {
+      const ack = await socketService.emitWithAck('send_message', {
         recipientId,
         message: text,
         messageId
-      }, async (ack: any) => {
-        // Clear the timeout since we got a response
-        clearTimeout(ackTimeout);
-        
-        if (ack && ack.success) {
-          console.log(`[ChatService] Message ${messageId} acknowledged by server`);
-          await this.updateMessageStatus(messageId, 'delivered');
-          resolve(messageId);
-        } else {
-          console.error(`[ChatService] Message ${messageId} failed:`, ack?.error || 'Unknown error');
-          await this.updateMessageStatus(messageId, 'failed');
-          resolve(messageId); // Still return the message ID even if it failed
-        }
-      });
-    });
+      }, 10000);
+      
+      if (ack && ack.success) {
+        console.log(`[ChatService] Message ${messageId} acknowledged by server`);
+        await this.updateMessageStatus(messageId, 'delivered');
+      } else {
+        console.error(`[ChatService] Message ${messageId} failed:`, ack?.error || 'Unknown error');
+        await this.updateMessageStatus(messageId, 'failed');
+      }
+    } catch (error) {
+      console.error(`[ChatService] Error sending message ${messageId}:`, error);
+      await this.updateMessageStatus(messageId, 'failed');
+    }
+    
+    return messageId;
   }
   
   /**
@@ -637,7 +603,8 @@ class ChatService {
     return {
       connected: this.isConnected,
       userId: this.userId,
-      isReconnecting: this.isReconnecting
+      socketConnected: socketService.isSocketConnected(),
+      socketInfo: socketService.getDebugInfo()
     };
   }
   
@@ -645,16 +612,13 @@ class ChatService {
    * Disconnect
    */
   public disconnect(): void {
+    // Clean up listeners
+    this.cleanUpEventListeners();
+    
     // Clear connection check interval
     if (this.connectionCheckInterval) {
       clearInterval(this.connectionCheckInterval);
       this.connectionCheckInterval = null;
-    }
-    
-    // Disconnect socket
-    if (this.socket) {
-      this.socket.disconnect();
-      this.socket = null;
     }
     
     this.isConnected = false;

@@ -35,6 +35,7 @@ export default function ConversationScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const firstLoadCompletedRef = useRef(false);
+  const lastMessageCountRef = useRef<number>(0);
 
   // Function to load message history directly from AsyncStorage
   const loadMessagesFromStorage = useCallback(async (loadType: 'initial' | 'refresh' | 'background' = 'background') => {
@@ -98,7 +99,10 @@ export default function ConversationScreen() {
         // Get messages for this conversation
         const conversationMessages = storedMessages[conversationId] || [];
         
-        console.log(`[ConversationScreen] Found ${conversationMessages.length} messages in AsyncStorage for conversation ${conversationId}`);
+        if (conversationMessages.length !== lastMessageCountRef.current) {
+          console.log(`[ConversationScreen] Found ${conversationMessages.length} messages in AsyncStorage for conversation ${conversationId} (changed from ${lastMessageCountRef.current})`);
+          lastMessageCountRef.current = conversationMessages.length;
+        }
         
         // If there are no messages, clear the messages array if not already empty
         if (conversationMessages.length === 0) {

@@ -11,6 +11,7 @@ class AppInitService {
   /**
    * Initialize app services based on user preferences
    * This should be called once when the app starts
+   * Note: Socket initialization is now managed by SocketProvider
    */
   public async initializeAppServices(): Promise<void> {
     if (this.initialized) {
@@ -30,7 +31,10 @@ class AppInitService {
       }
       
       const user = JSON.parse(userData);
-      console.log('[AppInitService] User loaded:', user);
+      console.log('[AppInitService] User loaded:', user.name || user.id);
+      
+      // Note: We no longer need to initialize sockets here since SocketProvider handles that
+      // Just log preferences for debugging purposes
       
       // Check if direct messages (DMs) are enabled
       const enableDms = user.enableDms === true;
@@ -40,24 +44,8 @@ class AppInitService {
       const sharePosition = user.sharePosition === true;
       console.log(`[AppInitService] Location sharing enabled: ${sharePosition}`);
       
-      // If either feature is enabled, we need to initialize the socket
-      if (enableDms || sharePosition) {
-        console.log('[AppInitService] Chat or location sharing is enabled, initializing socket services');
-        
-        // Initialize the socket connection
-        const socketInitialized = await socketService.init();
-        console.log(`[AppInitService] Socket initialization result: ${socketInitialized}`);
-        
-        // If DMs are enabled, initialize the chat service
-        if (enableDms && socketInitialized) {
-          console.log('[AppInitService] Initializing chat service for DMs');
-          await chatService.init();
-        }
-        
-        // Location service initialization happens automatically through socketService
-      } else {
-        console.log('[AppInitService] Both chat and location sharing are disabled, skipping socket initialization');
-      }
+      // Initialize other app services that don't depend on sockets
+      // ...
       
       this.initialized = true;
       console.log('[AppInitService] App services initialization complete');
@@ -65,6 +53,14 @@ class AppInitService {
     } catch (error) {
       console.error('[AppInitService] Error initializing app services:', error);
     }
+  }
+  
+  /**
+   * Reset initialization state - called when user logs out
+   */
+  public reset(): void {
+    this.initialized = false;
+    console.log('[AppInitService] App initialization state reset');
   }
 }
 

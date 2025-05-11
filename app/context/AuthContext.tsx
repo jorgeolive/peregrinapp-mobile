@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { User } from '../types/user';
 import appInitService from '../services/appInitService';
+import socketService from '../services/socketService';
 
 // Context Type Definition
 interface AuthContextType {
@@ -56,7 +57,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(userData);
       setToken(authToken);
       
-      // Initialize app services after login based on user preferences
+      // Initialize non-socket app services
+      // Socket connections are managed by SocketProvider which will detect the user state change
       await appInitService.initializeAppServices();
     } catch (error) {
       console.error('Error storing user data:', error);
@@ -66,10 +68,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
+      // First, ensure socket is disconnected
+      socketService.disconnect();
+      
+      // Then remove user data
       await AsyncStorage.removeItem('userData');
       await AsyncStorage.removeItem('token');
+      
+      // Update state
       setUser(null);
       setToken(null);
+      
+      // Reset app services
+      appInitService.reset();
     } catch (error) {
       console.error('Error removing user data:', error);
       throw error;
@@ -91,10 +102,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Update state
       setUser(updatedUser);
       
-      // If chat preferences changed, reinitialize services
-      if (preferences.enableDms !== undefined || preferences.sharePosition !== undefined) {
-        console.log('[AuthContext] Chat or location preferences changed, reinitializing services');
-        await appInitService.initializeAppServices();
+      // Handle socket-related preferences changes
+      // These will be picked up by the SocketProvider automatically
+      if (preferences.sharePosition !== undefined) {
+        // Update socket service's location sharing preference
+        await socketService.saveLocationSharingPreference(!!preferences.sharePosition);
       }
       
       return updatedUser;
