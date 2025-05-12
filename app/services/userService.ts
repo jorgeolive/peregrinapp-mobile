@@ -79,10 +79,12 @@ export const loginUser = async (phoneNumber: string, password: string): Promise<
   token?: string;
 }> => {
   try {
-    const response = await fetch(`${API_BASE_URL}/peregrinapp/login`, {
+    console.log(`[UserService] Attempting login for: ${phoneNumber} to ${API_BASE_URL}/peregrinapp/login`);
+    const response = await fetch(`${API_BASE_URL}/peregrinapp/users/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json'
       },
       body: JSON.stringify({
         phoneNumber,
@@ -90,8 +92,22 @@ export const loginUser = async (phoneNumber: string, password: string): Promise<
       }),
     });
 
+    // Check the content type to see if we're getting JSON back
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      console.error(`[UserService] Server returned non-JSON content: ${contentType}`);
+      // Try to get the text response for debugging
+      const textResponse = await response.text();
+      console.error(`[UserService] Response text (first 150 chars): ${textResponse.substring(0, 150)}`);
+      return { 
+        success: false, 
+        message: `Server returned unexpected content type: ${contentType || 'unknown'}. Please check your server settings.` 
+      };
+    }
+
     if (response.status === 200) {
       const data = await response.json();
+      console.log('[UserService] Login successful');
       return {
         success: true,
         user: data.user,
@@ -99,11 +115,91 @@ export const loginUser = async (phoneNumber: string, password: string): Promise<
         message: data.message
       };
     } else {
-      const data = await response.json();
-      return { success: false, message: data.message || 'Login failed' };
+      try {
+        const data = await response.json();
+        return { success: false, message: data.message || 'Login failed' };
+      } catch (parseError) {
+        console.error('[UserService] Failed to parse error response:', parseError);
+        return { success: false, message: `Login failed (Status ${response.status})` };
+      }
     }
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('[UserService] Login error:', error);
+    return { 
+      success: false, 
+      message: error instanceof Error ? `Network error: ${error.message}` : 'Network error. Please try again.' 
+    };
+  }
+}; 
+
+/**
+ * Get user details by ID
+ */
+export const getUserDetails = async (userId: string): Promise<{
+  success: boolean;
+  user?: {
+    id: string;
+    name: string;
+    bio: string;
+    enableDms: boolean;
+  };
+  message?: string;
+}> => {
+  try {
+    console.log(`[UserService] Getting user details for userId: ${userId}`);
+    
+    // Check if user data is cached in AsyncStorage first
+    try {
+      const cachedUserData = await AsyncStorage.getItem(`user_${userId}`);
+      if (cachedUserData) {
+        const userData = JSON.parse(cachedUserData);
+        console.log(`[UserService] Found cached user data for ${userId}`);
+        return { success: true, user: userData };
+      }
+    } catch (cacheError) {
+      console.log(`[UserService] No cached data for ${userId} or error reading cache`);
+    }
+    
+    // If not cached, fetch from server
+    const headers = await getAuthHeader();
+    console.log(`[UserService] Request headers:`, JSON.stringify(headers));
+    
+    const url = `${API_BASE_URL}/peregrinapp/users/${userId}`;
+    console.log(`[UserService] Making request to: ${url}`);
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers
+    });
+
+    console.log(`[UserService] Response status: ${response.status}`);
+    const responseData = await response.json();
+    console.log(`[UserService] Response data:`, JSON.stringify(responseData));
+
+    if (response.status === 200) {
+      console.log(`[UserService] Successfully retrieved user details`);
+      
+      // Cache the user data in AsyncStorage for future use
+      try {
+        await AsyncStorage.setItem(`user_${userId}`, JSON.stringify(responseData));
+        console.log(`[UserService] Cached user data for ${userId}`);
+      } catch (cacheError) {
+        console.error(`[UserService] Failed to cache user data:`, cacheError);
+      }
+      
+      return { success: true, user: responseData };
+    } else {
+      console.error(`[UserService] Failed to get user details. Status: ${response.status}, Message: ${responseData.message || 'No message'}`);
+      return { success: false, message: responseData.message || 'Failed to get user details' };
+    }
+  } catch (error) {
+    console.error('[UserService] Error fetching user details:', error);
+    if (error instanceof Error) {
+      console.error(`[UserService] Error name: ${error.name}, message: ${error.message}`);
+      if (error.stack) {
+        console.error(`[UserService] Error stack: ${error.stack}`);
+      }
+    }
     return { success: false, message: 'Network error. Please try again.' };
   }
 }; 

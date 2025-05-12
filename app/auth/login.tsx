@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, TextInput, View, TouchableOpacity, Alert } from 'react-native';
+import { StyleSheet, Text, TextInput, View, TouchableOpacity, Alert, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { loginUser } from '../services/userService';
@@ -39,6 +39,13 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
+        <View style={styles.logoContainer}>
+          <Image 
+            source={require('../../assets/images/peregrinapp_logo.png')} 
+            style={styles.logo} 
+            resizeMode="contain"
+          />
+        </View>
         <Text style={styles.title}>Welcome to PeregrinApp</Text>
         <Text style={styles.subtitle}>Login to your account</Text>
 
@@ -97,6 +104,14 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     justifyContent: 'center',
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  logo: {
+    width: 220,
+    height: 220,
   },
   title: {
     fontSize: 28,
