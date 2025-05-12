@@ -13,3 +13,5 @@ Open terminal
 Force APK into second emulator
 
  adb -s emulator-5556 install -r D:\UOC\TFG\peregrinapp-mobile\android\app\build\outputs\apk\debug\app-debug.apk
+
+ IMPORTANT: On first run with backend, ensure to clean LOCAL STORAGE in user profile tab.
