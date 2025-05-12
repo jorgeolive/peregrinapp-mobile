@@ -1,19 +1,27 @@
 import React, { useMemo, memo } from 'react';
-import { CircleLayer, LineLayer, ShapeSource, SymbolLayer } from "@maplibre/maplibre-react-native";
+import { CircleLayer, LineLayer, ShapeSource, SymbolLayer, RasterSource, RasterLayer } from "@maplibre/maplibre-react-native";
+import { LayerVisibility } from './LayerSelector';
 
 interface MapLayersProps {
   onAlberguePress: (event: any) => void;
   onStagePress: (event: any) => void;
   userLocation?: { longitude: number; latitude: number } | null;
+  layerVisibility: LayerVisibility;
 }
 
 // Memoized static layer components
-const AlberguesLayer = memo(({ onAlberguePress }: { onAlberguePress: (event: any) => void }) => {
+const AlberguesLayer = memo(({ 
+  onAlberguePress, 
+  visible 
+}: { 
+  onAlberguePress: (event: any) => void;
+  visible: boolean;
+}) => {
   return (
     <ShapeSource
       id="albergues"
       url="http://10.0.2.2:8080/geoserver/peregrinapp/gwc/service/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&LAYER=peregrinapp:camino_norte_albergues&STYLE=&TILEMATRIX=EPSG:900913:{z}&TILEMATRIXSET=EPSG:900913&FORMAT=application/vnd.mapbox-vector-tile&TILECOL={x}&TILEROW={y}"
-      onPress={onAlberguePress}
+      onPress={visible ? onAlberguePress : undefined}
     >
       <CircleLayer
         id="albergues-points"
@@ -22,32 +30,57 @@ const AlberguesLayer = memo(({ onAlberguePress }: { onAlberguePress: (event: any
           circleColor: '#4CAF50',
           circleStrokeWidth: 2,
           circleStrokeColor: '#ffffff',
-          circleOpacity: [
+          circleOpacity: visible ? [
             'interpolate',
             ['linear'],
             ['zoom'],
             5, 0,
             6, 1
-          ],
-          circleStrokeOpacity: [
+          ] : 0,
+          circleStrokeOpacity: visible ? [
             'interpolate',
             ['linear'],
             ['zoom'],
             5, 0,
             6, 1
-          ]
+          ] : 0
+        }}
+      />
+      <SymbolLayer
+        id="albergues-labels"
+        style={{
+          textField: ['get', 'name'],
+          textAnchor: 'left',
+          textOffset: [0.7, 0],
+          textSize: 14,
+          textColor: '#1B5E20',
+          textHaloColor: '#fff',
+          textHaloWidth: 2,
+          textOpacity: visible ? [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            5, 0,
+            6, 1
+          ] : 0
         }}
       />
     </ShapeSource>
   );
 });
 
-const CaminoNorteLayer = memo(({ onStagePress }: { onStagePress: (event: any) => void }) => {
+const CaminoNorteLayer = memo(({ 
+  onStagePress, 
+  visible 
+}: { 
+  onStagePress: (event: any) => void;
+  visible: boolean;
+}) => {
   return (
     <ShapeSource
       id="camino-norte"
       url="http://10.0.2.2:8080/geoserver/peregrinapp/gwc/service/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&LAYER=peregrinapp:camino_norte&STYLE=&TILEMATRIX=EPSG:900913:{z}&TILEMATRIXSET=EPSG:900913&FORMAT=application/vnd.mapbox-vector-tile&TILECOL={x}&TILEROW={y}"
-      onPress={onStagePress}
+      onPress={visible ? onStagePress : undefined}
       hitbox={{ width: 20, height: 20 }}
     >
       <LineLayer
@@ -106,74 +139,43 @@ const CaminoNorteLayer = memo(({ onStagePress }: { onStagePress: (event: any) =>
             '#888888'
           ],
           lineWidth: 4,
-          lineOpacity: [
+          lineOpacity: visible ? [
             'interpolate',
             ['linear'],
             ['zoom'],
             5, 0,
             6, 1
-          ]
+          ] : 0
+        }}
+      />
+      <SymbolLayer
+        id="camino-norte-labels"
+        style={{
+          textField: ['get', 'etapa'],
+          symbolPlacement: 'line',
+          textSize: 16,
+          textColor: '#1E88E5',
+          textHaloColor: '#fff',
+          textHaloWidth: 2,
+          textOpacity: visible ? 1 : 0
         }}
       />
     </ShapeSource>
   );
 });
 
-// Memoized user location marker component
-const UserLocationMarker = memo(({
-  userLocation,
-}: {
-  userLocation?: { longitude: number; latitude: number } | null;
-}) => {
-  if (!userLocation) return null;
-  
+// Memoized IGN base map layer
+const IGNBaseLayer = memo(({ visible }: { visible: boolean }) => {
   return (
-    <ShapeSource 
-      id="custom-user-location"
-      shape={{
-        type: 'Feature',
-        geometry: {
-          type: 'Point',
-          coordinates: [userLocation.longitude, userLocation.latitude]
-        },
-        properties: {
-          name: 'You'
-        }
-      }}
+    <RasterSource
+      id="ign-base-source"
+      url="https://www.ign.es/wmts/ign-base?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=IGNBaseTodo-nofondo&STYLE=default&TILEMATRIXSET=EPSG:3857&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image/png"
     >
-      <CircleLayer
-        id="custom-user-circle-halo"
-        style={{
-          circleRadius: 15,
-          circleColor: 'rgba(25, 118, 210, 0.2)',
-          circleStrokeWidth: 1,
-          circleStrokeColor: 'rgba(25, 118, 210, 0.4)'
-        }}
+      <RasterLayer
+        id="ign-base-layer"
+        style={{ rasterOpacity: visible ? 1 : 0 }}
       />
-      
-      <CircleLayer
-        id="custom-user-circle"
-        style={{
-          circleRadius: 8,
-          circleColor: '#1976D2',
-          circleStrokeWidth: 2,
-          circleStrokeColor: '#ffffff'
-        }}
-      />
-      
-      <SymbolLayer
-        id="custom-user-label"
-        style={{
-          textField: ['get', 'name'],
-          textSize: 12,
-          textOffset: [0, 2.2],
-          textAnchor: 'top',
-          textColor: '#000',
-          textHaloColor: '#fff',
-          textHaloWidth: 1
-        }}
-      />
-    </ShapeSource>
+    </RasterSource>
   );
 });
 
@@ -181,17 +183,24 @@ export const MapLayers: React.FC<MapLayersProps> = memo(({
   onAlberguePress, 
   onStagePress,
   userLocation,
+  layerVisibility
 }) => {
   const staticLayers = useMemo(() => (
     <>
-      <AlberguesLayer onAlberguePress={onAlberguePress} />
-      <CaminoNorteLayer onStagePress={onStagePress} />
+      <IGNBaseLayer visible={layerVisibility.ignBase} />
+      <AlberguesLayer 
+        onAlberguePress={onAlberguePress} 
+        visible={layerVisibility.albergues} 
+      />
+      <CaminoNorteLayer 
+        onStagePress={onStagePress} 
+        visible={layerVisibility.caminoNorte} 
+      />
     </>
-  ), [onAlberguePress, onStagePress]);
+  ), [onAlberguePress, onStagePress, layerVisibility]);
 
   return (
     <>
-      <UserLocationMarker userLocation={userLocation} />
       {staticLayers}
     </>
   );

@@ -26,6 +26,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useSocket } from '../context/SocketContext';
 import { OtherUsersProvider } from '../context/OtherUsersContext';
 import OtherUsersContainer from '../components/OtherUsersContainer';
+import { LayerSelector, LayerVisibility } from '../components/LayerSelector';
 
 // Define the user's hardcoded position
 const HARDCODED_POSITION = {
@@ -60,6 +61,21 @@ export default function ExploreScreen() {
   
   // Add state to track current zoom level
   const [currentZoomLevel, setCurrentZoomLevel] = useState(6);
+  
+  // Layer visibility state
+  const [layerVisibility, setLayerVisibility] = useState<LayerVisibility>({
+    ignBase: true,
+    caminoNorte: true,
+    albergues: true,
+  });
+  
+  // Function to toggle layer visibility
+  const handleToggleLayer = useCallback((layer: keyof LayerVisibility) => {
+    setLayerVisibility(prev => ({
+      ...prev,
+      [layer]: !prev[layer]
+    }));
+  }, []);
   
   // User details modal state
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
@@ -297,11 +313,17 @@ export default function ExploreScreen() {
             onAlberguePress={handleAlberguePress}
             onStagePress={handleStagePress}
             userLocation={userLocation}
+            layerVisibility={layerVisibility}
           />
           
           {/* Use the container component to prevent MapView re-renders */}
           <OtherUsersContainer onUserPress={handleUserPress} />
         </MapView>
+        
+        <LayerSelector 
+          visibility={layerVisibility}
+          onToggleLayer={handleToggleLayer}
+        />
         
         <View style={styles.buttonContainer}>
           <LocationButton onPress={centerOnUserLocation} />
