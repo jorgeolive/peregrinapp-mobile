@@ -16,7 +16,6 @@ import { fetchStageDetails } from '../services/stageService';
 import { StageModal } from '../components/StageModal';
 import { useLocation } from '../hooks/useLocation';
 import { MapLayers } from '../components/MapLayers';
-import { OtherUsersOverlay } from '../components/OtherUsersOverlay';
 import { LocationButton } from '../components/LocationButton';
 import { mapStyle } from '../components/MapStyles';
 import socketService from '../services/socketService';
@@ -24,7 +23,9 @@ import { useAuth } from '../context/AuthContext';
 import { getUserDetails } from '../services/userService';
 import { UserDetailsModal } from '../components/UserDetailsModal';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { useOtherUsers } from '../hooks/useOtherUsers';
+import { useSocket } from '../context/SocketContext';
+import { OtherUsersProvider } from '../context/OtherUsersContext';
+import OtherUsersContainer from '../components/OtherUsersContainer';
 
 // Define the user's hardcoded position
 const HARDCODED_POSITION = {
@@ -46,6 +47,7 @@ export default function ExploreScreen() {
   const router = useRouter();
   
   const { user } = useAuth();
+  const { isConnected: isConnectedToSocket } = useSocket();
   const [selectedAlbergue, setSelectedAlbergue] = useState<AlbergueFeature | null>(null);
   const [albergueDetails, setAlbergueDetails] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -55,9 +57,6 @@ export default function ExploreScreen() {
   const [isStageLoading, setIsStageLoading] = useState(false);
   const [followUserLocation, setFollowUserLocation] = useState(false);
   const followTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // Get other users from the custom hook
-  const { otherUsers, isConnectedToSocket, ensureSocketConnection } = useOtherUsers();
   
   // Add state to track current zoom level
   const [currentZoomLevel, setCurrentZoomLevel] = useState(6);
@@ -163,8 +162,7 @@ export default function ExploreScreen() {
       followTimeoutRef.current = null;
     }
     
-    const clickedUser = otherUsers.find(u => u.id === userId);
-    console.log(`[ExploreScreen] User marker clicked for userId: ${userId}, name: ${clickedUser?.name || 'unknown'}`);
+    console.log(`[ExploreScreen] User marker clicked for userId: ${userId}`);
     
     setSelectedUserId(userId);
     setIsUserDetailsLoading(true);
@@ -256,116 +254,105 @@ export default function ExploreScreen() {
       };
     }, [])
   );
-  
-  // The socket connection is now managed by SocketProvider, so we don't need
-  // to handle app state changes or reconnection here
-  // All socket and connection listeners have been removed
 
   return (
-    <SafeAreaView style={styles.container}>
-      <MapView
-        ref={mapRef}
-        style={styles.map}
-        mapStyle={JSON.stringify(mapStyle)}
-        zoomEnabled={true}
-        scrollEnabled={true}
-        rotateEnabled={true}
-        pitchEnabled={true}
-        onPress={() => {
-          // Disable follow on any map press
-          setFollowUserLocation(false);
-          if (followTimeoutRef.current) {
-            clearTimeout(followTimeoutRef.current);
-            followTimeoutRef.current = null;
-          }
-        }}
-        //onRegionDidChange={(e) => {
-          // Track zoom level changes when the user interacts with the map
-        //  if (e.properties.zoomLevel) {
-        //    setCurrentZoomLevel(e.properties.zoomLevel);
-        //  }
-        //}
-      >
-        {userLocation && followUserLocation && (
-          <Camera
-            zoomLevel={currentZoomLevel}
-            centerCoordinate={[userLocation.longitude, userLocation.latitude]}
-            followUserLocation={followUserLocation}
-            followUserMode={UserTrackingMode.Follow}
-            followZoomLevel={currentZoomLevel}
+    <OtherUsersProvider>
+      <SafeAreaView style={styles.container}>
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          mapStyle={JSON.stringify(mapStyle)}
+          zoomEnabled={true}
+          scrollEnabled={true}
+          rotateEnabled={true}
+          pitchEnabled={true}
+          onPress={() => {
+            // Disable follow on any map press
+            setFollowUserLocation(false);
+            if (followTimeoutRef.current) {
+              clearTimeout(followTimeoutRef.current);
+              followTimeoutRef.current = null;
+            }
+          }}
+        >
+          {userLocation && followUserLocation && (
+            <Camera
+              zoomLevel={currentZoomLevel}
+              centerCoordinate={[userLocation.longitude, userLocation.latitude]}
+              followUserLocation={followUserLocation}
+              followUserMode={UserTrackingMode.Follow}
+              followZoomLevel={currentZoomLevel}
+            />
+          )}
+
+          <UserLocation
+            visible={true}
+            showsUserHeadingIndicator={true}
+            animated={true}
+            androidRenderMode="compass"
+            renderMode={Platform.OS === 'android' ? 'native' : 'normal'} 
           />
-        )}
 
-        <UserLocation
-          visible={true}
-          showsUserHeadingIndicator={true}
-          animated={true}
-          androidRenderMode="compass"
-          renderMode={Platform.OS === 'android' ? 'native' : 'normal'} 
-        />
-
-        <MapLayers
-          onAlberguePress={handleAlberguePress}
-          onStagePress={handleStagePress}
-          userLocation={userLocation}
-        />
-        
-        {/* Separate component for other users that updates independently */}
-        <OtherUsersOverlay 
-          otherUsers={otherUsers}
-          onUserPress={handleUserPress}
-        />
-      </MapView>
-      
-      <View style={styles.buttonContainer}>
-        <LocationButton onPress={centerOnUserLocation} />
-      </View>
-      
-      {isConnectedToSocket && (
-        <View style={styles.socketStatusContainer}>
-          <View style={styles.socketStatusDot} />
-          <Text style={styles.socketStatusText}>
-            Connected
-          </Text>
-        </View>
-      )}
-      
-      <AlbergueModal
-        selectedAlbergue={selectedAlbergue}
-        albergueDetails={albergueDetails}
-        isLoading={isLoading}
-        onClose={handleCloseModal}
-      />
-      <StageModal
-        visible={isStageModalVisible}
-        stageDetails={stageDetails}
-        isLoading={isStageLoading}
-        onClose={() => {
-          setIsStageModalVisible(false);
-          setStageDetails(null);
-        }}
-      />
-      <UserDetailsModal
-        visible={!!selectedUserId}
-        userId={selectedUserId || undefined}
-        username={userDetails?.name}
-        userBio={userDetails?.bio}
-        enableDms={userDetails?.enableDms}
-        loading={isUserDetailsLoading}
-        error={userDetailsError || undefined}
-        onClose={handleCloseUserModal}
-        onStartChat={(userId, name) => {
-          console.log(`[ExploreScreen] Starting chat with user ${name} (${userId})`);
-          handleCloseUserModal();
+          <MapLayers
+            onAlberguePress={handleAlberguePress}
+            onStagePress={handleStagePress}
+            userLocation={userLocation}
+          />
           
-          // Navigate to the conversation screen
-          router.push({
-            pathname: "/conversation/[id]",
-            params: { id: userId, name }
-          });
-        }}
-      />
-    </SafeAreaView>
+          {/* Use the container component to prevent MapView re-renders */}
+          <OtherUsersContainer onUserPress={handleUserPress} />
+        </MapView>
+        
+        <View style={styles.buttonContainer}>
+          <LocationButton onPress={centerOnUserLocation} />
+        </View>
+        
+        {isConnectedToSocket && (
+          <View style={styles.socketStatusContainer}>
+            <View style={styles.socketStatusDot} />
+            <Text style={styles.socketStatusText}>
+              Connected
+            </Text>
+          </View>
+        )}
+        
+        <AlbergueModal
+          selectedAlbergue={selectedAlbergue}
+          albergueDetails={albergueDetails}
+          isLoading={isLoading}
+          onClose={handleCloseModal}
+        />
+        <StageModal
+          visible={isStageModalVisible}
+          stageDetails={stageDetails}
+          isLoading={isStageLoading}
+          onClose={() => {
+            setIsStageModalVisible(false);
+            setStageDetails(null);
+          }}
+        />
+        <UserDetailsModal
+          visible={!!selectedUserId}
+          userId={selectedUserId || undefined}
+          username={userDetails?.name}
+          userBio={userDetails?.bio}
+          enableDms={userDetails?.enableDms}
+          loading={isUserDetailsLoading}
+          error={userDetailsError || undefined}
+          onClose={handleCloseUserModal}
+          onStartChat={(userId, name) => {
+            console.log(`[ExploreScreen] Starting chat with user ${name} (${userId})`);
+            handleCloseUserModal();
+            
+            // Navigate to the conversation screen
+            router.push({
+              pathname: "/conversation/[id]",
+              params: { id: userId, name }
+            });
+          }}
+        />
+      </SafeAreaView>
+    </OtherUsersProvider>
   );
 }
 

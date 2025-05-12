@@ -1,6 +1,13 @@
 import React, { memo } from 'react';
 import { ShapeSource, CircleLayer, SymbolLayer } from "@maplibre/maplibre-react-native";
-import { OtherUser } from '../hooks/useOtherUsers';
+
+export interface OtherUser {
+  id: string;
+  name: string;
+  longitude: number;
+  latitude: number;
+  color: string;
+}
 
 interface OtherUsersOverlayProps {
   otherUsers: OtherUser[];

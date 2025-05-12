@@ -574,11 +574,11 @@ class ChatService {
         messageId
       }, 10000);
       
-      if (ack && ack.success) {
+      if (ack && ack.status === 'delivered') {
         console.log(`[ChatService] Message ${messageId} acknowledged by server`);
         await this.updateMessageStatus(messageId, 'delivered');
       } else {
-        console.error(`[ChatService] Message ${messageId} failed:`, ack?.error || 'Unknown error');
+        console.error(`[ChatService] Message ${messageId} failed:`, ack?.message || 'Unknown error');
         await this.updateMessageStatus(messageId, 'failed');
       }
     } catch (error) {

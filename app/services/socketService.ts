@@ -849,13 +849,33 @@ class SocketService {
       
       // Set timeout for acknowledgment
       const timeoutId = setTimeout(() => {
+        console.warn(`[SocketService] Acknowledgment timeout for event ${eventName} after ${timeout}ms`);
         reject(new Error(`Acknowledgment timeout for event ${eventName}`));
       }, timeout);
       
       try {
+        console.log(`[SocketService] Emitting event with acknowledgment: ${eventName}`, JSON.stringify(data).substring(0, 100) + (JSON.stringify(data).length > 100 ? '...' : ''));
+        const emitTime = Date.now();
+        
         this.socket.emit(eventName, data, (response: any) => {
-          clearTimeout(timeoutId);
-          resolve(response);
+          try {
+            const responseTime = Date.now() - emitTime;
+            console.log(`[SocketService] Received acknowledgment for ${eventName} after ${responseTime}ms:`, 
+              response ? (typeof response === 'object' ? JSON.stringify(response).substring(0, 100) + (JSON.stringify(response).length > 100 ? '...' : '') : response) : 'null');
+            clearTimeout(timeoutId);
+            
+            // Add validation for expected response format
+            if (!response || typeof response !== 'object') {
+              reject(new Error(`Invalid acknowledgment response format for ${eventName}`));
+              return;
+            }
+            
+            resolve(response);
+          } catch (callbackError) {
+            clearTimeout(timeoutId);
+            console.error(`[SocketService] Error processing acknowledgment for ${eventName}:`, callbackError);
+            reject(callbackError);
+          }
         });
       } catch (error) {
         clearTimeout(timeoutId);
