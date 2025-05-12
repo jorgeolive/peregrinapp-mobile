@@ -4,15 +4,20 @@ export const mapStyle: MapStyle = {
   version: 8,
   glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
   sources: {
-    'es-map': {
-      type: 'vector',
-      tiles: ['http://10.0.2.2:8080/geoserver/peregrinapp/gwc/service/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&LAYER=peregrinapp:es_map&STYLE=&TILEMATRIX=EPSG:900913:{z}&TILEMATRIXSET=EPSG:900913&FORMAT=application/vnd.mapbox-vector-tile&TILECOL={x}&TILEROW={y}'],
-      tms: true
-    },
-    'poblaciones': {
-      type: 'vector',
-      tiles: ['http://10.0.2.2:8080/geoserver/peregrinapp/gwc/service/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&LAYER=peregrinapp:poblaciones&STYLE=&TILEMATRIX=EPSG:900913:{z}&TILEMATRIXSET=EPSG:900913&FORMAT=application/vnd.mapbox-vector-tile&TILECOL={x}&TILEROW={y}'],
-      tms: true
+    'ign-base': {
+      type: 'raster',
+      tiles: [
+        'https://www.ign.es/wmts/ign-base?' +
+        'SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0' +
+        '&LAYER=IGNBaseTodo-nofondo' +
+        '&STYLE=default' +
+        '&TILEMATRIXSET=EPSG:3857' +
+        '&TILEMATRIX={z}' +
+        '&TILEROW={y}' +
+        '&TILECOL={x}' +
+        '&FORMAT=image/png'
+      ],
+      attribution: '© Instituto Geográfico Nacional de España'
     },
     'camino-norte': {
       type: 'vector',
@@ -22,16 +27,6 @@ export const mapStyle: MapStyle = {
     'albergues': {
       type: 'vector',
       tiles: ['http://10.0.2.2:8080/geoserver/peregrinapp/gwc/service/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&LAYER=peregrinapp:camino_norte_albergues&STYLE=&TILEMATRIX=EPSG:900913:{z}&TILEMATRIXSET=EPSG:900913&FORMAT=application/vnd.mapbox-vector-tile&TILECOL={x}&TILEROW={y}'],
-      tms: true
-    },
-    'carretera-sec': {
-      type: 'vector',
-      tiles: ['http://10.0.2.2:8080/geoserver/peregrinapp/gwc/service/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&LAYER=peregrinapp:carretera_sec&STYLE=&TILEMATRIX=EPSG:900913:{z}&TILEMATRIXSET=EPSG:900913&FORMAT=application/vnd.mapbox-vector-tile&TILECOL={x}&TILEROW={y}'],
-      tms: true
-    },
-    'carretera-ppal': {
-      type: 'vector',
-      tiles: ['http://10.0.2.2:8080/geoserver/peregrinapp/gwc/service/wmts?REQUEST=GetTile&SERVICE=WMTS&VERSION=1.0.0&LAYER=peregrinapp:carretera_ppal&STYLE=&TILEMATRIX=EPSG:900913:{z}&TILEMATRIXSET=EPSG:900913&FORMAT=application/vnd.mapbox-vector-tile&TILECOL={x}&TILEROW={y}'],
       tms: true
     }
   },
@@ -44,26 +39,11 @@ export const mapStyle: MapStyle = {
       }
     },
     {
-      id: 'es-map-fill',
-      type: 'fill',
-      source: 'es-map',
-      'source-layer': 'es_map',
-      paint: {
-        'fill-color': '#FFF9E6',
-        'fill-opacity': 0.9,
-        'fill-outline-color': '#FFE6B3'
-      }
-    },
-    {
-      id: 'es-map-line',
-      type: 'line',
-      source: 'es-map',
-      'source-layer': 'es_map',
-      paint: {
-        'line-color': '#FFE6B3',
-        'line-width': 1,
-        'line-opacity': 0.7
-      }
+      id: 'ign-base-layer',
+      type: 'raster',
+      source: 'ign-base',
+      minzoom: 0,
+      maxzoom: 19
     },
     {
       id: 'camino-norte-line',
@@ -153,59 +133,6 @@ export const mapStyle: MapStyle = {
       }
     },
     {
-      id: 'poblaciones-points',
-      type: 'circle',
-      source: 'poblaciones',
-      'source-layer': 'poblaciones',
-      minzoom: 10,
-      paint: {
-        'circle-radius': 4,
-        'circle-color': '#FF5722',
-        'circle-stroke-width': 1,
-        'circle-stroke-color': '#ffffff',
-        'circle-opacity': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          8, 0,
-          9, 1
-        ],
-        'circle-stroke-opacity': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          8, 0,
-          9, 1
-        ]
-      }
-    },
-    {
-      id: 'poblaciones-labels',
-      type: 'symbol',
-      source: 'poblaciones',
-      'source-layer': 'poblaciones',
-      minzoom: 10,
-      layout: {
-        'text-field': ['get', 'etiqueta'],
-        'text-anchor': 'left',
-        'text-offset': [0.5, 0],
-        'text-size': 12,
-        'text-font': ['Noto Sans Regular']
-      },
-      paint: {
-        'text-color': '#333',
-        'text-halo-color': '#fff',
-        'text-halo-width': 2,
-        'text-opacity': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          8, 0,
-          9, 1
-        ]
-      }
-    },
-    {
       id: 'albergues-points',
       type: 'circle',
       source: 'albergues',
@@ -257,36 +184,11 @@ export const mapStyle: MapStyle = {
           6, 1
         ]
       }
-    },
-    {
-      id: 'carretera-sec-line',
-      type: 'line',
-      source: 'carretera-sec',
-      'source-layer': 'carretera_sec',
-      minzoom: 8,
-      paint: {
-        'line-color': '#666666',
-        'line-width': 2,
-        'line-opacity': 0.7,
-        'line-dasharray': [2, 2]
-      }
-    },
-    {
-      id: 'carretera-ppal-line',
-      type: 'line',
-      source: 'carretera-ppal',
-      'source-layer': 'carretera_ppal',
-      minzoom: 8,
-      paint: {
-        'line-color': '#333333',
-        'line-width': 3,
-        'line-opacity': 0.8
-      }
     }
   ],
   center: [-8.5463, 42.8805],
   zoom: 9,
-  minzoom: 9,
+  minzoom: 5,
   maxzoom: 18,
   maxBounds: [
     [-9.4, 36.0],

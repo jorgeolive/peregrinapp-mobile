@@ -38,6 +38,25 @@ const AlberguesLayer = memo(({ onAlberguePress }: { onAlberguePress: (event: any
           ]
         }}
       />
+      <SymbolLayer
+        id="albergues-labels"
+        style={{
+          textField: ['get', 'name'],
+          textAnchor: 'left',
+          textOffset: [0.7, 0],
+          textSize: 14,
+          textColor: '#1B5E20',
+          textHaloColor: '#fff',
+          textHaloWidth: 2,
+          textOpacity: [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            5, 0,
+            6, 1
+          ]
+        }}
+      />
     </ShapeSource>
   );
 });
@@ -113,6 +132,17 @@ const CaminoNorteLayer = memo(({ onStagePress }: { onStagePress: (event: any) =>
             5, 0,
             6, 1
           ]
+        }}
+      />
+      <SymbolLayer
+        id="camino-norte-labels"
+        style={{
+          textField: ['get', 'etapa'],
+          symbolPlacement: 'line',
+          textSize: 16,
+          textColor: '#1E88E5',
+          textHaloColor: '#fff',
+          textHaloWidth: 2
         }}
       />
     </ShapeSource>

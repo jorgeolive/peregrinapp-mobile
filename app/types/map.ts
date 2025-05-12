@@ -33,6 +33,7 @@ export interface MapStyle {
       tms?: boolean;
       minzoom?: number;
       maxzoom?: number;
+      attribution?: string;
     };
   };
   layers: any[];
