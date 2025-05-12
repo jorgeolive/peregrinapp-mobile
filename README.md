@@ -1,94 +1,135 @@
-# Welcome to your Expo app 👋
+# PeregrinApp - Your Camino de Santiago Companion
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+PeregrinApp is a mobile application designed to enhance the Camino de Santiago pilgrimage experience. It provides pilgrims with interactive maps, accommodation information, and social features to connect with other pilgrims along the journey.
 
-## Get started
+## 🌟 Features
 
-1. Install dependencies
+### 🗺️ Interactive Map Navigation
+- **Multiple Map Layers**: Toggle between IGN official maps, Camino Norte routes, and albergue locations
+- **Stage Information**: View detailed information about each stage of the Camino
+- **Current Location**: Track your position along the route in real-time
+- **Other Pilgrims**: See other pilgrims on the map who have opted to share their location
 
+### 🏠 Albergue Information
+- **Comprehensive Database**: Access details about pilgrim hostels along the route
+- **Essential Details**: View capacity, prices, amenities, and contact information
+- **Interactive Markers**: Tap on any albergue on the map for instant information
+
+### 📝 Stage Details
+- **Route Information**: Distance, difficulty level, elevation profile
+- **Points of Interest**: Notable landmarks and attractions along each stage
+- **Visual Identification**: Color-coded routes for easy identification
+
+### 👤 User Profile & Privacy
+- **Customizable Profile**: Set your display name and bio
+- **Location Privacy**: Control whether your location is shared with other pilgrims
+- **Visibility Settings**: Choose who can contact you via direct messages
+
+### 💬 Direct Messaging
+- **Connect with Pilgrims**: Send private messages to other users on the route
+- **Real-time Chat**: Instant messaging with pilgrims you meet along the way
+- **Community Building**: Form connections and share experiences with fellow travelers
+
+## 📱 Installation
+
+### Prerequisites
+- [Node.js](https://nodejs.org/)
+- [npm](https://www.npmjs.com/)
+- [Android Studio](https://developer.android.com/studio) with Android SDK installed
+- [Java Development Kit (JDK)](https://www.oracle.com/java/technologies/javase-downloads.html)
+
+### Setup
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/peregrinapp-mobile.git
+   cd peregrinapp-mobile
+   ```
+
+2. Install dependencies:
    ```bash
    npm install
    npx expo install
    ```
 
-2. Start the app (Android)
-
+3. Start the app (Android):
    ```bash
-     npx expo run:android
+   npx expo run:android
    ```
 
-3. Reset AsyncStorage in emulator
+## 🧪 Testing with Multiple Emulators
 
-```bash
-adb shell pm clear com.anonymous.peregrinapp
-```
+To fully test social features, you can run multiple Android emulators simultaneously:
 
-4. Enforce coordinates 
+### Quick Setup
 
-```bash
-adb emu geo fix -8.544844 42.880447
-```
+1. Open a terminal and start the first emulator:
+   ```bash
+   emulator -avd Medium_Phone_API_36 -port 5554
+   ```
 
-## Running multiple emulators for testing
+2. Open another terminal tab and start the second emulator:
+   ```bash
+   emulator -avd Pixel_9_Pro -port 5556
+   ```
 
-To test user interaction features like location sharing and DMs, you can run multiple emulators simultaneously:
+3. In a third terminal tab, build and run the application:
+   ```bash
+   npx expo run:android
+   ```
 
-### Using the command line
+4. Force install the APK into the second emulator:
+   ```bash
+   adb -s emulator-5556 install -r D:\UOC\TFG\peregrinapp-mobile\android\app\build\outputs\apk\debug\app-debug.apk
+   ```
+
+### Detailed Setup
 
 1. List available emulators:
    ```bash
    emulator -list-avds
    ```
 
-2. Start the first emulator on port 5554:
+2. Start emulators on different ports:
    ```bash
+   # First emulator
    emulator -avd EmulatorName1 -port 5554
-   ```
-
-3. Start the second emulator on port 5556:
-   ```bash
+   
+   # Second emulator
    emulator -avd EmulatorName2 -port 5556
    ```
 
-4. Verify both devices are running:
+3. Verify both devices are running:
    ```bash
    adb devices
    ```
 
-5. Install and run the app on both emulators:
+4. Run the app on specific emulators:
    ```bash
-   # First, list available devices as Expo sees them
+   # List available devices
    npx expo run:android --list
    
-   # Run on the first emulator (use the name from the list above)
+   # Run on first emulator
    npx expo run:android --device "Pixel_6_API_33"
    
-   # Run on the second emulator
+   # Run on second emulator
    npx expo run:android --device "Pixel_7_API_34"
    ```
 
-6. Set different positions for each emulator:
+5. Simulate different locations for testing:
    ```bash
-   # For the first emulator (specify by port or device ID)
+   # Set first emulator's position (Camino Norte coordinates)
    adb -s emulator-5554 emu geo fix -8.544844 42.880447
    
-   # For the second emulator (nearby location)
+   # Set second emulator's position (nearby location)
    adb -s emulator-5556 emu geo fix -8.543901 42.879986
    ```
 
-### Using Android Studio
+## 🏗️ Building APK Files
 
-1. Open Android Studio
-2. Click "Device Manager" in the toolbar
-3. Click the play button next to two different virtual devices
-4. Both emulators will launch separately
-5. Install the app on both emulators using Expo CLI
+To create APKs for deployment or testing:
 
-## Building and deploying APKs
-
-To create APKs and deploy them to emulators:
-
-1. **Create a development build APK**:
+1. Create a development build APK:
    ```bash
    npx expo prebuild --platform android
    cd android
@@ -96,112 +137,23 @@ To create APKs and deploy them to emulators:
    ```
    This creates an APK at `android/app/build/outputs/apk/debug/app-debug.apk`
 
-2. **Install to second emulator**:
-   ```bash
-   adb devices -l # Verify your emulators are connected
-   adb -s emulator-5556 install -r D:\UOC\TFG\peregrinapp-mobile\android\app\build\outputs\apk\debug\app-debug.apk
-   ```
-
-3. **Install to specific emulator** (if you have multiple):
-   ```bash
-   # For the first emulator
-   adb -s emulator-5554 install -r android/app/build/outputs/apk/debug/app-debug.apk
-   
-   # For the second emulator
-   adb -s emulator-5556 install -r android/app/build/outputs/apk/debug/app-debug.apk
-   ```
-
-4. **Creating a release APK** (for distribution testing):
+2. Create a release APK (for distribution testing):
    ```bash
    cd android
    ./gradlew assembleRelease
    ```
    The release APK will be at `android/app/build/outputs/apk/release/app-release.apk`
 
-In the output, you'll find options to open the app in a
+## 🔌 Technical Architecture
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+PeregrinApp uses a real-time socket management system to enable features like location sharing and direct messaging:
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+- **Socket Management**: Centralized system for all real-time communications
+- **Map Integration**: MapLibre GL for advanced mapping capabilities
+- **Layer System**: Toggle different map layers for customized viewing
+- **User Authentication**: Secure login and profile management
+- **Privacy Controls**: Fine-grained settings for location sharing and communications
 
-## Get a fresh project
+## 📝 License
 
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
-
-## Socket Management System
-
-The application uses a centralized socket management system to handle real-time communications for both location sharing and chat functionality.
-
-### Socket Architecture
-
-1. **SocketProvider**: Application-level socket management
-   - Handles socket lifecycle (connect, disconnect, reconnect)
-   - Manages authentication state
-   - Responds to network and app state changes
-   - Exposes connection status to components
-
-2. **Service Integration**:
-   - `socketService`: Core socket functionality
-   - `chatService`: Uses the shared socket for chat functionality
-
-3. **Connection Management**:
-   - Automatically connects when user logs in
-   - Reconnects when app returns to foreground
-   - Reconnects on network changes
-   - Disconnects on logout
-
-### Usage in Components
-
-```tsx
-import { useSocket } from '../context/SocketContext';
-
-function MyComponent() {
-  const { isConnected, isAuthenticated, connectionError, forceReconnect } = useSocket();
-  
-  // Use socket state in your component
-  
-  return (
-    <View>
-      {isConnected ? (
-        <Text>Connected to real-time service</Text>
-      ) : (
-        <Button 
-          title="Reconnect" 
-          onPress={forceReconnect} 
-        />
-      )}
-    </View>
-  );
-}
-```
-
-### Benefits
-
-- Single socket connection for all features
-- Predictable connection lifecycle
-- Improved performance and reduced battery usage
-- Centralized error handling
-- Reduces code duplication across components
+PeregrinApp is [license type] licensed - see the LICENSE file for details. 
