@@ -64,7 +64,6 @@ export default function ExploreScreen() {
   
   // Layer visibility state
   const [layerVisibility, setLayerVisibility] = useState<LayerVisibility>({
-    ignBase: true,
     caminoNorte: true,
     albergues: true,
   });

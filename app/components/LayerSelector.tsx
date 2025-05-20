@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, TouchableOpacity, Modal, Pressable } from 'reac
 import { MaterialIcons } from '@expo/vector-icons';
 
 export interface LayerVisibility {
-  ignBase: boolean;
   caminoNorte: boolean;
   albergues: boolean;
 }
@@ -50,21 +49,6 @@ export const LayerSelector: React.FC<LayerSelectorProps> = ({
                 <MaterialIcons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
-
-            <TouchableOpacity 
-              style={styles.layerItem} 
-              onPress={() => onToggleLayer('ignBase')}
-            >
-              <MaterialIcons 
-                name={visibility.ignBase ? "check-box" : "check-box-outline-blank"} 
-                size={24} 
-                color={visibility.ignBase ? "#1976D2" : "#757575"} 
-              />
-              <View style={styles.layerInfo}>
-                <Text style={styles.layerName}>IGN Map</Text>
-                <Text style={styles.layerDescription}>Official Spanish base map</Text>
-              </View>
-            </TouchableOpacity>
 
             <TouchableOpacity 
               style={styles.layerItem} 

@@ -165,7 +165,7 @@ const CaminoNorteLayer = memo(({
 });
 
 // Memoized IGN base map layer
-const IGNBaseLayer = memo(({ visible }: { visible: boolean }) => {
+const IGNBaseLayer = memo(() => {
   return (
     <RasterSource
       id="ign-base-source"
@@ -173,7 +173,7 @@ const IGNBaseLayer = memo(({ visible }: { visible: boolean }) => {
     >
       <RasterLayer
         id="ign-base-layer"
-        style={{ rasterOpacity: visible ? 1 : 0 }}
+        style={{ rasterOpacity: 1 }}
       />
     </RasterSource>
   );
@@ -187,7 +187,7 @@ export const MapLayers: React.FC<MapLayersProps> = memo(({
 }) => {
   const staticLayers = useMemo(() => (
     <>
-      <IGNBaseLayer visible={layerVisibility.ignBase} />
+      <IGNBaseLayer />
       <AlberguesLayer 
         onAlberguePress={onAlberguePress} 
         visible={layerVisibility.albergues} 

@@ -17,7 +17,7 @@ export const mapStyle: MapStyle = {
         '&TILECOL={x}' +
         '&FORMAT=image/png'
       ],
-      attribution: '© Instituto Geográfico Nacional de España'
+      attribution: 'Instituto Geográfico Nacional de España'
     },
     'camino-norte': {
       type: 'vector',
